@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vcn-control-v1';
+const CACHE_NAME = 'vcn-control-v2';
 
 const STATIC_FILES = [
   './',
@@ -32,11 +32,13 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
+  // Não cachear Supabase para evitar login, comandos e status antigos.
   if (url.hostname.includes('supabase.co')) {
     event.respondWith(fetch(event.request));
     return;
   }
 
+  // Para navegação principal, tenta internet primeiro; se falhar, abre o app do cache.
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() => caches.match('./index.html'))
@@ -44,6 +46,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // Para arquivos estáticos, tenta cache primeiro.
   event.respondWith(
     caches.match(event.request).then(cached => {
       return cached || fetch(event.request);
