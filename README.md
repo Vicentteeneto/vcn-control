@@ -4,7 +4,7 @@ Aplicativo pessoal em formato PWA para uso privado.
 
 ## Sobre
 
-Este projeto é uma interface web simples, responsiva e instalável no celular.
+Interface web simples, responsiva e instalável no celular.
 
 ## Tecnologias
 

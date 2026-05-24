@@ -1,7 +1,7 @@
 {
   "name": "VCN Control",
   "short_name": "VCN",
-  "description": "Controle de acesso do portão",
+  "description": "Aplicativo pessoal em formato PWA para uso privado.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
