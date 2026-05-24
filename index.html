@@ -449,6 +449,9 @@ let perfilTimer = null;
 
 const LOG_REFRESH_MS = 2000;
 const STATUS_CHECK_MS = 10000;
+// Janela para considerar retorno recente do ESP32.
+// Sem heartbeat real, isto evita mostrar online por causa de comando antigo.
+const ESP32_ONLINE_WINDOW_MS = 45000;
 const PERFIL_RETRY_MS = 2000;
 
 // Utils
@@ -705,24 +708,30 @@ async function carregarPerfil() {
 async function enviarComando(acao) {
   document.getElementById('btn-abrir').disabled  = true;
   document.getElementById('btn-fechar').disabled = true;
+
   const r = await insertComando(acao, USER_ID, TOKEN);
+
   setTimeout(() => {
     document.getElementById('btn-abrir').disabled  = false;
     document.getElementById('btn-fechar').disabled = false;
   }, 3000);
+
   if (!r.ok) {
     toast('Erro: ' + JSON.stringify(r.data));
-  } else {
-    toast(acao === 'abrir' ? '🔓 Abrindo portão...' : '🔒 Fechando portão...');
-    // Status online imediato
-    document.getElementById('s-dot').className = 'dot on';
-    document.getElementById('s-txt').textContent = 'Comando enviado — aguardando ESP32';
-    // Adiciona entrada no log imediatamente sem esperar ESP32
-    adicionarLogImediato(acao);
-    // Atualiza do banco após 2s
-    setTimeout(carregarLogs, 2000);
-    setTimeout(verificarStatus, 2000);
+    return;
   }
+
+  // Não marque como online aqui.
+  // O app só pode mostrar retorno quando o ESP32 realmente marcar o comando como executado no banco.
+  toast(acao === 'abrir' ? '🔓 Comando de abrir enviado' : '🔒 Comando de fechar enviado');
+  document.getElementById('s-dot').className = 'dot';
+  document.getElementById('s-txt').textContent = 'Comando enviado — aguardando retorno do ESP32';
+
+  // O histórico só deve atualizar quando o ESP32 confirmar no banco.
+  setTimeout(carregarLogs, 2000);
+  setTimeout(verificarStatus, 2000);
+  setTimeout(carregarLogs, 5000);
+  setTimeout(verificarStatus, 5000);
 }
 
 function adicionarLogImediato(acao) {
@@ -798,18 +807,37 @@ async function carregarUsuarios() {
 // ---- STATUS ESP32 ----
 async function verificarStatus() {
   if (!TOKEN) return;
+
   const dot = document.getElementById('s-dot');
   const txt = document.getElementById('s-txt');
+
   const r = await supa('GET',
     '/rest/v1/comandos?executado=eq.true&order=criado_em.desc&limit=1&select=criado_em,acao',
     null, TOKEN);
-  if (r.ok && r.data && r.data.length > 0) {
-    dot.className = 'dot on';
-    txt.textContent = 'Último retorno do ESP32 — ' + fmt(r.data[0].criado_em);
+
+  if (!r.ok) {
+    dot.className = 'dot';
+    txt.textContent = 'Não foi possível verificar o retorno do ESP32';
     return;
   }
+
+  if (!r.data || r.data.length === 0) {
+    dot.className = 'dot';
+    txt.textContent = 'Nenhum retorno do ESP32 ainda';
+    return;
+  }
+
+  const ultimo = new Date(r.data[0].criado_em);
+  const idade = Date.now() - ultimo.getTime();
+
+  if (idade <= ESP32_ONLINE_WINDOW_MS) {
+    dot.className = 'dot on';
+    txt.textContent = 'Retorno recente do ESP32 — ' + fmt(r.data[0].criado_em);
+    return;
+  }
+
   dot.className = 'dot';
-  txt.textContent = 'Aguardando retorno do ESP32...';
+  txt.textContent = 'ESP32 sem retorno recente — último retorno ' + fmt(r.data[0].criado_em);
 }
 
 async function aprovar(id) {
