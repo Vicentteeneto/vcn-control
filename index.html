@@ -238,13 +238,13 @@ input::placeholder{color:var(--text3)}
     <div class="field"><label>E-mail</label><input type="email" id="l-email" placeholder="seu@email.com" autocomplete="email"></div>
     <div class="field"><label>Senha</label><input type="password" id="l-senha" placeholder="••••••••" autocomplete="current-password"></div>
     <div style="display:flex;align-items:center;gap:10px;padding:2px 0">
-      <div id="lembrar-box" onclick="toggleLembrar()" style="width:22px;height:22px;border-radius:6px;border:2px solid #2563eb;background:#0f0f22;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s">
+      <div id="lembrar-box" role="checkbox" aria-checked="false" tabindex="0" onclick="toggleLembrar()" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();toggleLembrar();}" style="width:22px;height:22px;border-radius:6px;border:2px solid #2563eb;background:#0f0f22;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s">
         <svg id="lembrar-check" width="13" height="10" viewBox="0 0 13 10" fill="none" style="display:none">
           <polyline points="1,5 5,9 12,1" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
       <input type="checkbox" id="lembrar" style="display:none">
-      <label for="lembrar-box" onclick="toggleLembrar()" style="font-size:14px;color:var(--text2);cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0;user-select:none">Lembrar e-mail e senha</label>
+      <label onclick="toggleLembrar()" style="font-size:14px;color:var(--text2);cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0;user-select:none">Lembrar e-mail</label>
     </div>
     <div class="msg" id="m-login"></div>
     <button class="btn" id="btn-entrar">Entrar</button>
@@ -386,17 +386,29 @@ async function supa(method, path, body, token) {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
   };
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  else headers['Authorization'] = 'Bearer ' + KEY;
+  headers['Authorization'] = 'Bearer ' + (token || KEY);
 
-  const r = await fetch(URL + path, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const txt = await r.text();
-  try { return { ok: r.ok, status: r.status, data: JSON.parse(txt) }; }
-  catch { return { ok: r.ok, status: r.status, data: txt }; }
+  try {
+    const r = await fetch(URL + path, {
+      method,
+      headers,
+      cache: 'no-store',
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const txt = await r.text();
+    let data = null;
+    if (txt) {
+      try { data = JSON.parse(txt); }
+      catch { data = txt; }
+    }
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) {
+    return {
+      ok: false,
+      status: 0,
+      data: { message: e && e.message ? e.message : 'Falha de conexão' }
+    };
+  }
 }
 
 // Auth helpers
@@ -429,6 +441,13 @@ async function updateUsuario(id, data, token) {
 
 // Estado
 let TOKEN = null, USER_ID = null, PERFIL = null;
+let logTimer = null;
+let statusTimer = null;
+let perfilTimer = null;
+
+const LOG_REFRESH_MS = 2000;
+const STATUS_CHECK_MS = 10000;
+const PERFIL_RETRY_MS = 2000;
 
 // Utils
 function toast(m) {
@@ -438,7 +457,28 @@ function toast(m) {
 }
 function setMsg(id, txt, tipo) {
   const el = document.getElementById(id);
-  el.textContent = txt; el.className = 'msg ' + tipo;
+  el.textContent = txt;
+  el.className = 'msg ' + tipo;
+}
+function esc(valor) {
+  return String(valor ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function limparTimers() {
+  if (logTimer) clearInterval(logTimer);
+  if (statusTimer) clearInterval(statusTimer);
+  if (perfilTimer) clearTimeout(perfilTimer);
+  logTimer = null;
+  statusTimer = null;
+  perfilTimer = null;
+}
+function agendarPerfil() {
+  if (perfilTimer) clearTimeout(perfilTimer);
+  perfilTimer = setTimeout(() => {
+    perfilTimer = null;
+    carregarPerfil();
+  }, PERFIL_RETRY_MS);
 }
 function tela(id) {
   document.querySelectorAll('.tela').forEach(t => t.classList.remove('ativa'));
@@ -455,7 +495,7 @@ function fmt(iso) {
   if (diff < 86400000) return d.toLocaleTimeString('pt-BR', {
     hour: '2-digit', minute: '2-digit', timeZone: 'America/Belem'
   });
-  return d.toLocaleDateString('pt-BR', {
+  return d.toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit',
     hour: '2-digit', minute: '2-digit',
     timeZone: 'America/Belem'
@@ -511,6 +551,7 @@ function toggleLembrar() {
   const box = document.getElementById('lembrar-box');
   const check = document.getElementById('lembrar-check');
   cb.checked = !cb.checked;
+  box.setAttribute('aria-checked', cb.checked ? 'true' : 'false');
   if (cb.checked) {
     box.style.background = '#2563eb';
     check.style.display = 'block';
@@ -527,10 +568,12 @@ window.addEventListener('DOMContentLoaded', () => {
     if (saved) {
       const c = JSON.parse(saved);
       document.getElementById('l-email').value = c.email || '';
-      document.getElementById('l-senha').value = c.senha || '';
       document.getElementById('lembrar').checked = true;
       document.getElementById('lembrar-box').style.background = '#2563eb';
+      document.getElementById('lembrar-box').setAttribute('aria-checked', 'true');
       document.getElementById('lembrar-check').style.display = 'block';
+      // Remove senha antiga que tenha sido gravada por versões anteriores.
+      localStorage.setItem('vcn_creds', JSON.stringify({ email: c.email || '' }));
     }
   } catch(e) {}
 });
@@ -547,7 +590,7 @@ document.getElementById('btn-entrar').onclick = async () => {
   if (!r.ok) { setMsg('m-login','E-mail ou senha incorretos','erro'); return; }
   // Salva ou remove credenciais
   try {
-    if (lembrar) localStorage.setItem('vcn_creds', JSON.stringify({email, senha}));
+    if (lembrar) localStorage.setItem('vcn_creds', JSON.stringify({ email }));
     else localStorage.removeItem('vcn_creds');
   } catch(e) {}
   TOKEN = r.data.access_token;
@@ -566,15 +609,29 @@ document.getElementById('btn-cad').onclick = async () => {
   btn.disabled = true; btn.textContent = 'Criando...';
   const r = await signUp(email, senha, nome);
   btn.disabled = false; btn.textContent = 'Criar conta';
-  if (!r.ok) { setMsg('m-cad', JSON.stringify(r.data),'erro'); return; }
+  if (!r.ok) {
+    const msg = r.data && r.data.message ? r.data.message : 'Erro ao criar conta';
+    setMsg('m-cad', msg, 'erro');
+    return;
+  }
   setMsg('m-cad','Conta criada! Confirme seu e-mail para entrar.','ok');
 };
 
 async function sair() {
-  if (TOKEN) await signOut(TOKEN);
+  const tokenAtual = TOKEN;
+  limparTimers();
   TOKEN = null; USER_ID = null; PERFIL = null;
   limparSessao();
-  // Mantém credenciais se "lembrar" estava marcado
+
+  if (tokenAtual) await signOut(tokenAtual);
+
+  document.getElementById('btn-adm').style.display = 'none';
+  document.getElementById('btn-abrir').disabled = true;
+  document.getElementById('btn-fechar').disabled = true;
+  document.getElementById('s-dot').className = 'dot';
+  document.getElementById('s-txt').textContent = 'Verificando conexão...';
+  document.getElementById('sec-log').style.display = 'none';
+  // Mantém apenas o e-mail se "lembrar" estava marcado.
   tela('t-login');
 }
 document.getElementById('btn-sair').onclick    = sair;
@@ -582,14 +639,22 @@ document.getElementById('btn-sair-ag').onclick = sair;
 
 // Carregar perfil
 async function carregarPerfil() {
+  if (!TOKEN || !USER_ID) return;
+
   const r = await getPerfil(USER_ID, TOKEN);
   const dbg = document.getElementById('dbg-ag');
+
+  if (r.status === 401 || r.status === 403) {
+    setMsg('m-login', 'Sessão expirada. Entre novamente.', 'erro');
+    await sair();
+    return;
+  }
 
   if (!r.ok || !r.data || r.data.length === 0) {
     // Perfil ainda não criado pelo trigger — aguarda
     if (dbg) dbg.textContent = 'Aguardando perfil... status:' + r.status + ' ' + JSON.stringify(r.data);
     tela('t-ag');
-    setTimeout(carregarPerfil, 2000);
+    agendarPerfil();
     return;
   }
 
@@ -598,29 +663,40 @@ async function carregarPerfil() {
   if (!PERFIL.aprovado) {
     if (dbg) dbg.textContent = 'ID:' + PERFIL.id + ' aprovado:' + PERFIL.aprovado + ' admin:' + PERFIL.admin;
     tela('t-ag');
+    agendarPerfil();
     return;
   }
 
+  if (perfilTimer) {
+    clearTimeout(perfilTimer);
+    perfilTimer = null;
+  }
+
   // Aprovado — tela principal
-  document.getElementById('u-nome').textContent = PERFIL.nome || PERFIL.email;
+  document.getElementById('u-nome').textContent = PERFIL.nome || PERFIL.email || 'Usuário';
   document.getElementById('btn-adm').style.display = PERFIL.admin ? 'inline-block' : 'none';
   document.getElementById('btn-abrir').disabled  = false;
   document.getElementById('btn-fechar').disabled = false;
   tela('t-app');
+
   // Log só para admin
   const secLog = document.getElementById('sec-log');
-  if (PERFIL && PERFIL.admin === true) {
+  if (PERFIL.admin === true) {
     secLog.style.display = 'block';
     secLog.style.visibility = 'visible';
-    carregarLogs();
+    await carregarLogs();
     if (logTimer) clearInterval(logTimer);
-    logTimer = setInterval(carregarLogs, 2000);
+    logTimer = setInterval(carregarLogs, LOG_REFRESH_MS);
   } else {
     secLog.style.display = 'none';
     secLog.style.visibility = 'hidden';
+    if (logTimer) clearInterval(logTimer);
+    logTimer = null;
   }
-  verificarStatus();
-  setInterval(verificarStatus, 10000);
+
+  await verificarStatus();
+  if (statusTimer) clearInterval(statusTimer);
+  statusTimer = setInterval(verificarStatus, STATUS_CHECK_MS);
 }
 
 // Comandos
@@ -638,7 +714,7 @@ async function enviarComando(acao) {
     toast(acao === 'abrir' ? '🔓 Abrindo portão...' : '🔒 Fechando portão...');
     // Status online imediato
     document.getElementById('s-dot').className = 'dot on';
-    document.getElementById('s-txt').textContent = 'ESP32 online — agora';
+    document.getElementById('s-txt').textContent = 'Comando enviado — aguardando ESP32';
     // Adiciona entrada no log imediatamente sem esperar ESP32
     adicionarLogImediato(acao);
     // Atualiza do banco após 2s
@@ -651,7 +727,7 @@ function adicionarLogImediato(acao) {
   if (!PERFIL || !PERFIL.admin) return;
   const lista = document.getElementById('log-lista');
   if (!lista) return;
-  const nome = PERFIL.nome || PERFIL.email || 'Você';
+  const nome = esc(PERFIL.nome || PERFIL.email || 'Você');
   const badge = acao === 'abrir'
     ? '<span class="badge ba2">Abriu</span>'
     : '<span class="badge bf2">Fechou</span>';
@@ -667,7 +743,10 @@ document.getElementById('btn-fechar').onclick = () => enviarComando('fechar');
 
 // Logs
 async function carregarLogs() {
+  if (!PERFIL || PERFIL.admin !== true || !TOKEN) return;
   const lista = document.getElementById('log-lista');
+  if (!lista) return;
+
   // Busca comandos executados com join em usuarios
   const r = await supa('GET',
     '/rest/v1/comandos?executado=eq.true&order=criado_em.desc&limit=15&select=acao,criado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
@@ -681,12 +760,12 @@ async function carregarLogs() {
     if (l.usuarios) {
       quem = l.usuarios.nome || l.usuarios.email || 'Usuário';
     } else if (l.usuario_id) {
-      quem = 'ID: ' + l.usuario_id.substring(0,8) + '...';
+      quem = 'ID: ' + String(l.usuario_id).substring(0,8) + '...';
     }
-    const badge = l.acao === 'abrir' 
-      ? '<span class="badge ba2">Abriu</span>' 
+    const badge = l.acao === 'abrir'
+      ? '<span class="badge ba2">Abriu</span>'
       : '<span class="badge bf2">Fechou</span>';
-    return `<div class="li"><div><div class="q">${quem}</div><div class="w">${fmt(l.criado_em)}</div></div>${badge}</div>`;
+    return `<div class="li"><div><div class="q">${esc(quem)}</div><div class="w">${esc(fmt(l.criado_em))}</div></div>${badge}</div>`;
   }).join('');
 }
 
@@ -702,17 +781,21 @@ async function carregarUsuarios() {
   }
   lista.innerHTML = r.data.map(u => {
     const badge = u.aprovado ? '<span style="color:#4dff70;font-size:11px;">✓</span>' : '<span style="color:#ffaa00;font-size:11px;">⏳</span>';
+    const id = esc(u.id);
+    const nome = esc(u.nome || '(sem nome)');
+    const email = esc(u.email || '');
     const acoes = u.id === USER_ID ? '<span style="color:#555;font-size:11px;">Você</span>' : `
       <div class="uac">
-        ${!u.aprovado ? `<button class="bap" onclick="aprovar('${u.id}')">Aprovar</button>` : ''}
-        ${u.aprovado && !u.admin ? `<button class="brm" onclick="remover('${u.id}')">Remover</button>` : ''}
+        ${!u.aprovado ? `<button class="bap" onclick="aprovar('${id}')">Aprovar</button>` : ''}
+        ${u.aprovado && !u.admin ? `<button class="brm" onclick="remover('${id}')">Remover</button>` : ''}
       </div>`;
-    return `<div class="uc"><div><div class="n">${u.nome||'(sem nome)'} ${badge}</div><div class="e">${u.email}</div></div>${acoes}</div>`;
+    return `<div class="uc"><div class="uc-info"><div class="n">${nome} ${badge}</div><div class="e">${email}</div></div>${acoes}</div>`;
   }).join('');
 }
 
 // ---- STATUS ESP32 ----
 async function verificarStatus() {
+  if (!TOKEN) return;
   const dot = document.getElementById('s-dot');
   const txt = document.getElementById('s-txt');
   const r = await supa('GET',
@@ -720,11 +803,11 @@ async function verificarStatus() {
     null, TOKEN);
   if (r.ok && r.data && r.data.length > 0) {
     dot.className = 'dot on';
-    txt.textContent = 'ESP32 online — ' + fmt(r.data[0].criado_em);
+    txt.textContent = 'Último retorno do ESP32 — ' + fmt(r.data[0].criado_em);
     return;
   }
   dot.className = 'dot';
-  txt.textContent = 'Aguardando ESP32...';
+  txt.textContent = 'Aguardando retorno do ESP32...';
 }
 
 async function aprovar(id) {
