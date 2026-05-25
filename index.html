@@ -12,7 +12,7 @@
 <meta name="application-name" content="VCN Control">
 <link rel="apple-touch-icon" href="./assets/icon-192.png">
 <link rel="icon" type="image/png" href="./assets/icon-192.png">
-<title>VCN Control</title>
+<title>VCN Control Admin</title>
 <style>
 :root{
   --bg:#050510;--bg2:#0a0a1a;--bg3:#0f0f22;
@@ -206,6 +206,42 @@ input::placeholder{color:var(--text3)}
 .bap{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border);border-radius:10px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer}
 .brm{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border);border-radius:10px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer}
 
+
+
+/* ADMIN CONFIGURAÇÕES */
+.admin-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px}
+.admin-tab{
+  background:var(--bg3);border:1px solid var(--border2);color:var(--text2);
+  border-radius:12px;padding:11px 10px;font-size:13px;font-weight:700;cursor:pointer;
+}
+.admin-tab.ativa{border-color:var(--blue);color:var(--text);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.admin-panel{display:none;flex-direction:column;gap:12px}
+.admin-panel.ativa{display:flex}
+.config-card{
+  background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:16px;
+  display:flex;flex-direction:column;gap:12px;
+}
+.config-title{font-size:13px;font-weight:800;color:var(--text);letter-spacing:.02em}
+.config-desc{font-size:12px;line-height:1.55;color:var(--text3)}
+.config-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.config-row label{font-size:13px;color:var(--text2);font-weight:600}
+.config-row input[type="number"],.config-row input[type="text"]{max-width:155px;padding:11px 12px;border-radius:12px;font-size:14px}
+.switch{position:relative;width:48px;height:28px;flex-shrink:0}
+.switch input{display:none}
+.slider{position:absolute;cursor:pointer;inset:0;background:#1b2340;border:1px solid var(--border2);border-radius:28px;transition:.2s}
+.slider:before{content:"";position:absolute;height:22px;width:22px;left:3px;top:2px;background:#64748b;border-radius:50%;transition:.2s}
+.switch input:checked + .slider{background:rgba(34,197,94,.18);border-color:var(--green-border)}
+.switch input:checked + .slider:before{transform:translateX(20px);background:var(--green)}
+.cfg-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn-danger{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border);border-radius:12px;padding:12px;font-weight:800;cursor:pointer}
+.btn-ok{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border);border-radius:12px;padding:12px;font-weight:800;cursor:pointer}
+.btn-mini{background:var(--bg3);color:var(--text2);border:1px solid var(--border2);border-radius:12px;padding:12px;font-weight:700;cursor:pointer}
+.status-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.status-box{background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:12px;min-width:0}
+.status-box .k{font-size:10px;color:var(--text3);text-transform:uppercase;font-weight:800;letter-spacing:.08em}
+.status-box .v{font-size:13px;color:var(--text);font-weight:700;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.warn-box{background:rgba(250,204,21,.07);border:1px solid rgba(250,204,21,.22);color:#fde68a;border-radius:12px;padding:12px;font-size:12px;line-height:1.55}
+
 /* TOAST */
 .toast{
   position:fixed;bottom:36px;left:50%;
@@ -369,11 +405,77 @@ input::placeholder{color:var(--text3)}
 <!-- ADMIN -->
 <div class="tela" id="t-admin">
   <div class="app-header">
-    <div><h2>Usuários</h2><p>Gerenciar acessos</p></div>
+    <div><h2>Painel Admin</h2><p>Usuários e configurações</p></div>
     <button class="btn-sec" id="btn-back">← Voltar</button>
   </div>
-  <div style="display:flex;flex-direction:column;gap:10px" id="lista-u">
-    <div style="color:var(--text3);text-align:center;padding:32px;">Carregando...</div>
+
+  <div class="admin-tabs">
+    <button class="admin-tab ativa" id="tab-usuarios">Usuários</button>
+    <button class="admin-tab" id="tab-config">Configurações</button>
+  </div>
+
+  <div class="admin-panel ativa" id="painel-usuarios">
+    <div style="display:flex;flex-direction:column;gap:10px" id="lista-u">
+      <div style="color:var(--text3);text-align:center;padding:32px;">Carregando...</div>
+    </div>
+  </div>
+
+  <div class="admin-panel" id="painel-config">
+    <div class="config-card">
+      <div>
+        <div class="config-title">Dispositivo</div>
+        <div class="config-desc">Essas opções ficam disponíveis apenas para administrador. Usuários comuns não veem nem acessam esta tela.</div>
+      </div>
+      <div class="config-row">
+        <label>Nome do dispositivo</label>
+        <input id="cfg-nome" type="text" placeholder="Portão">
+      </div>
+      <div class="config-row">
+        <label>Tempo do pulso</label>
+        <input id="cfg-pulso" type="number" min="100" max="2000" step="50" placeholder="400">
+      </div>
+      <div class="config-row">
+        <label>Expiração do comando</label>
+        <input id="cfg-expira" type="number" min="5" max="60" step="5" placeholder="30">
+      </div>
+      <div class="config-row">
+        <label>Modo manutenção</label>
+        <label class="switch"><input id="cfg-manut" type="checkbox"><span class="slider"></span></label>
+      </div>
+      <div class="config-desc">Modo manutenção bloqueia comandos comuns no app. Para bloqueio físico total, o ESP32 também precisa ler essa configuração.</div>
+      <div class="cfg-actions">
+        <button class="btn-ok" id="btn-salvar-config">Salvar</button>
+        <button class="btn-mini" id="btn-recarregar-config">Recarregar</button>
+      </div>
+    </div>
+
+    <div class="config-card">
+      <div>
+        <div class="config-title">Wi-Fi do ESP32</div>
+        <div class="config-desc">Quando o ESP32 ainda não está na internet, o app não consegue configurá-lo pelo Supabase. O modo correto é o ESP32 criar uma rede local de configuração.</div>
+      </div>
+      <div class="warn-box">
+        Para trocar o Wi-Fi: o ESP32 deve entrar no modo configuração e criar a rede <b>VCN-Control-Setup</b>. Depois conecte o celular nessa rede e acesse <b>192.168.4.1</b>.
+      </div>
+      <div class="cfg-actions">
+        <button class="btn-mini" id="btn-modo-wifi">Solicitar modo Wi-Fi</button>
+        <button class="btn-danger" id="btn-reiniciar-esp">Reiniciar ESP32</button>
+      </div>
+      <div class="config-desc">Esses botões enviam comandos administrativos. Eles só terão efeito quando o firmware do ESP32 estiver preparado para as ações <b>config_wifi</b> e <b>reiniciar_esp32</b>.</div>
+    </div>
+
+    <div class="config-card">
+      <div>
+        <div class="config-title">Status do dispositivo</div>
+        <div class="config-desc">Sem ping ativo, este status usa a última ação confirmada. Quando adicionarmos ping, ficará online/offline real.</div>
+      </div>
+      <div class="status-grid">
+        <div class="status-box"><div class="k">Última ação</div><div class="v" id="cfg-ult-acao">—</div></div>
+        <div class="status-box"><div class="k">Ação</div><div class="v" id="cfg-ult-tipo">—</div></div>
+        <div class="status-box"><div class="k">Manutenção</div><div class="v" id="cfg-st-manut">—</div></div>
+        <div class="status-box"><div class="k">Pulso</div><div class="v" id="cfg-st-pulso">—</div></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -441,8 +543,28 @@ async function updateUsuario(id, data, token) {
   return supa('PATCH', `/rest/v1/usuarios?id=eq.${id}`, data, token);
 }
 
+async function getConfig(token) {
+  return supa('GET', '/rest/v1/configuracoes?id=eq.portao_principal&select=*', null, token);
+}
+async function salvarConfig(data, token) {
+  return supa('PATCH', '/rest/v1/configuracoes?id=eq.portao_principal', data, token);
+}
+async function criarConfigPadrao(token) {
+  return supa('POST', '/rest/v1/configuracoes', {
+    id: 'portao_principal',
+    nome_dispositivo: 'Portão',
+    tempo_pulso_ms: 400,
+    expira_comando_seg: 30,
+    modo_manutencao: false
+  }, token);
+}
+async function enviarComandoAdmin(acao) {
+  return supa('POST', '/rest/v1/comandos', { acao, usuario_id: USER_ID }, TOKEN);
+}
+
 // Estado
 let TOKEN = null, USER_ID = null, PERFIL = null;
+let CONFIG = null;
 let logTimer = null;
 let statusTimer = null;
 let perfilTimer = null;
@@ -683,6 +805,7 @@ async function carregarPerfil() {
   document.getElementById('btn-abrir').disabled  = false;
   document.getElementById('btn-fechar').disabled = false;
   tela('t-app');
+  await carregarConfigSilencioso();
 
   // Log só para admin
   const secLog = document.getElementById('sec-log');
@@ -706,6 +829,10 @@ async function carregarPerfil() {
 
 // Comandos
 async function enviarComando(acao) {
+  if (CONFIG && CONFIG.modo_manutencao && (!PERFIL || PERFIL.admin !== true)) {
+    toast('Sistema em manutenção. Tente mais tarde.');
+    return;
+  }
   document.getElementById('btn-abrir').disabled  = true;
   document.getElementById('btn-fechar').disabled = true;
 
@@ -725,7 +852,7 @@ async function enviarComando(acao) {
   // O app só pode mostrar retorno quando o ESP32 realmente marcar o comando como executado no banco.
   toast(acao === 'abrir' ? '🔓 Comando de abrir enviado' : '🔒 Comando de fechar enviado');
   document.getElementById('s-dot').className = 'dot';
-  document.getElementById('s-txt').textContent = 'Comando enviado — aguardando retorno do ESP32';
+  document.getElementById('s-txt').textContent = 'Comando enviado — aguardando confirmação do ESP32';
 
   // O histórico só deve atualizar quando o ESP32 confirmar no banco.
   setTimeout(carregarLogs, 2000);
@@ -781,8 +908,127 @@ async function carregarLogs() {
 }
 
 // Admin
-document.getElementById('btn-adm').onclick  = async () => { tela('t-admin'); await carregarUsuarios(); };
+function abrirPainelAdmin(nome) {
+  if (!PERFIL || PERFIL.admin !== true) {
+    toast('Acesso restrito ao administrador');
+    tela('t-app');
+    return;
+  }
+  const usuarios = document.getElementById('painel-usuarios');
+  const config = document.getElementById('painel-config');
+  const tabUsuarios = document.getElementById('tab-usuarios');
+  const tabConfig = document.getElementById('tab-config');
+  const cfg = nome === 'config';
+  usuarios.classList.toggle('ativa', !cfg);
+  config.classList.toggle('ativa', cfg);
+  tabUsuarios.classList.toggle('ativa', !cfg);
+  tabConfig.classList.toggle('ativa', cfg);
+}
+
+document.getElementById('tab-usuarios').onclick = async () => {
+  abrirPainelAdmin('usuarios');
+  await carregarUsuarios();
+};
+document.getElementById('tab-config').onclick = async () => {
+  abrirPainelAdmin('config');
+  await carregarConfigAdmin();
+};
+document.getElementById('btn-adm').onclick  = async () => {
+  if (!PERFIL || PERFIL.admin !== true) return toast('Acesso restrito ao administrador');
+  tela('t-admin');
+  abrirPainelAdmin('usuarios');
+  await carregarUsuarios();
+};
 document.getElementById('btn-back').onclick = () => tela('t-app');
+
+
+async function carregarConfigSilencioso() {
+  if (!TOKEN) return;
+  const r = await getConfig(TOKEN);
+  if (r.ok && Array.isArray(r.data) && r.data.length) {
+    CONFIG = r.data[0];
+    if (CONFIG.nome_dispositivo) {
+      const h2 = document.querySelector('#t-app .app-header h2');
+      if (h2) h2.textContent = CONFIG.nome_dispositivo;
+    }
+    return;
+  }
+  CONFIG = null;
+}
+
+async function carregarConfigAdmin() {
+  if (!PERFIL || PERFIL.admin !== true) return toast('Acesso restrito');
+  let r = await getConfig(TOKEN);
+
+  if (r.ok && Array.isArray(r.data) && r.data.length === 0) {
+    await criarConfigPadrao(TOKEN);
+    r = await getConfig(TOKEN);
+  }
+
+  if (!r.ok || !Array.isArray(r.data) || !r.data.length) {
+    toast('Configuração não encontrada. Rode o SQL complementar.');
+    return;
+  }
+
+  CONFIG = r.data[0];
+  document.getElementById('cfg-nome').value = CONFIG.nome_dispositivo || 'Portão';
+  document.getElementById('cfg-pulso').value = CONFIG.tempo_pulso_ms || 400;
+  document.getElementById('cfg-expira').value = CONFIG.expira_comando_seg || 30;
+  document.getElementById('cfg-manut').checked = !!CONFIG.modo_manutencao;
+  document.getElementById('cfg-st-manut').textContent = CONFIG.modo_manutencao ? 'Ativo' : 'Desligado';
+  document.getElementById('cfg-st-pulso').textContent = (CONFIG.tempo_pulso_ms || 400) + ' ms';
+  await atualizarResumoUltimaAcaoAdmin();
+}
+
+async function atualizarResumoUltimaAcaoAdmin() {
+  const r = await supa('GET', '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=1&select=acao,executado_em,criado_em', null, TOKEN);
+  const elHora = document.getElementById('cfg-ult-acao');
+  const elTipo = document.getElementById('cfg-ult-tipo');
+  if (!elHora || !elTipo) return;
+  if (!r.ok || !r.data || !r.data.length) {
+    elHora.textContent = 'Nenhuma';
+    elTipo.textContent = '—';
+    return;
+  }
+  elHora.textContent = fmt(r.data[0].executado_em || r.data[0].criado_em);
+  elTipo.textContent = r.data[0].acao || '—';
+}
+
+document.getElementById('btn-recarregar-config').onclick = carregarConfigAdmin;
+document.getElementById('btn-salvar-config').onclick = async () => {
+  if (!PERFIL || PERFIL.admin !== true) return toast('Acesso restrito');
+  const nome = document.getElementById('cfg-nome').value.trim() || 'Portão';
+  const pulso = Math.max(100, Math.min(2000, Number(document.getElementById('cfg-pulso').value || 400)));
+  const expira = Math.max(5, Math.min(60, Number(document.getElementById('cfg-expira').value || 30)));
+  const manut = document.getElementById('cfg-manut').checked;
+  const r = await salvarConfig({
+    nome_dispositivo: nome,
+    tempo_pulso_ms: pulso,
+    expira_comando_seg: expira,
+    modo_manutencao: manut,
+    atualizado_em: new Date().toISOString(),
+    atualizado_por: USER_ID
+  }, TOKEN);
+  if (!r.ok) return toast('Erro ao salvar: ' + JSON.stringify(r.data));
+  toast('Configurações salvas');
+  await carregarConfigAdmin();
+  await carregarConfigSilencioso();
+};
+
+document.getElementById('btn-modo-wifi').onclick = async () => {
+  if (!PERFIL || PERFIL.admin !== true) return toast('Acesso restrito');
+  if (!confirm('Solicitar modo configuração Wi-Fi ao ESP32? Só funciona se o firmware estiver preparado.')) return;
+  await salvarConfig({ modo_config_wifi: true, atualizado_em: new Date().toISOString(), atualizado_por: USER_ID }, TOKEN);
+  const r = await enviarComandoAdmin('config_wifi');
+  toast(r.ok ? 'Comando de Wi-Fi enviado' : 'Falha ao enviar comando Wi-Fi');
+};
+
+document.getElementById('btn-reiniciar-esp').onclick = async () => {
+  if (!PERFIL || PERFIL.admin !== true) return toast('Acesso restrito');
+  if (!confirm('Reiniciar o ESP32? Só funciona se o firmware estiver preparado.')) return;
+  const r = await enviarComandoAdmin('reiniciar_esp32');
+  toast(r.ok ? 'Comando de reinício enviado' : 'Falha ao enviar reinício');
+};
 
 async function carregarUsuarios() {
   const r = await getUsuarios(TOKEN);
@@ -817,13 +1063,13 @@ async function verificarStatus() {
 
   if (!r.ok) {
     dot.className = 'dot';
-    txt.textContent = 'Não foi possível verificar o retorno do ESP32';
+    txt.textContent = 'Não foi possível verificar a última ação confirmada';
     return;
   }
 
   if (!r.data || r.data.length === 0) {
     dot.className = 'dot';
-    txt.textContent = 'Nenhum retorno do ESP32 ainda';
+    txt.textContent = 'Nenhuma ação confirmada ainda';
     return;
   }
 
@@ -831,7 +1077,7 @@ async function verificarStatus() {
 
   if (!r.data[0].executado_em) {
     dot.className = 'dot';
-    txt.textContent = 'Último comando não tem executado_em — ajuste o trigger/ESP32';
+    txt.textContent = 'Último comando confirmado sem horário — verifique trigger/ESP32';
     return;
   }
 
@@ -840,12 +1086,12 @@ async function verificarStatus() {
 
   if (idade <= ESP32_ONLINE_WINDOW_MS) {
     dot.className = 'dot on';
-    txt.textContent = 'Retorno recente do ESP32 — ' + fmt(retornoIso);
+    txt.textContent = 'Último comando confirmado — ' + fmt(retornoIso);
     return;
   }
 
   dot.className = 'dot';
-  txt.textContent = 'ESP32 sem retorno recente — último retorno ' + fmt(retornoIso);
+  txt.textContent = 'Último comando confirmado — ' + fmt(retornoIso);
 }
 
 async function aprovar(id) {
