@@ -559,6 +559,9 @@ async function criarConfigPadrao(token) {
   }, token);
 }
 async function enviarComandoAdmin(acao) {
+  if (!PERFIL || PERFIL.admin !== true) {
+    return { ok:false, status:403, data:{ message:'Acesso restrito ao administrador' } };
+  }
   return supa('POST', '/rest/v1/comandos', { acao, usuario_id: USER_ID }, TOKEN);
 }
 
@@ -575,6 +578,23 @@ const STATUS_CHECK_MS = 10000;
 // Sem heartbeat real, isto evita mostrar online por causa de comando antigo.
 const ESP32_ONLINE_WINDOW_MS = 45000;
 const PERFIL_RETRY_MS = 2000;
+const ACOES_PORTAO = ['abrir', 'fechar'];
+const FILTRO_ACOES_PORTAO = 'acao=in.(abrir,fechar)';
+
+function acaoPortaoValida(acao) {
+  return ACOES_PORTAO.includes(String(acao || '').toLowerCase());
+}
+function badgeAcaoPortao(acao) {
+  if (acao === 'abrir') return '<span class="badge ba2">Abriu</span>';
+  if (acao === 'fechar') return '<span class="badge bf2">Fechou</span>';
+  return '<span class="badge" style="background:var(--bg3);color:var(--text3);border:1px solid var(--border2)">Outro</span>';
+}
+function labelErroComando(data) {
+  const raw = typeof data === 'string' ? data : JSON.stringify(data || {});
+  if (raw.includes('modo_manutencao') || raw.includes('manutenção') || raw.includes('maintenance')) return 'Sistema em manutenção';
+  if (raw.includes('permission') || raw.includes('policy') || raw.includes('403') || raw.includes('42501')) return 'Sem permissão para enviar comando';
+  return 'Falha ao enviar comando';
+}
 
 // Utils
 function toast(m) {
@@ -829,6 +849,15 @@ async function carregarPerfil() {
 
 // Comandos
 async function enviarComando(acao) {
+  if (!acaoPortaoValida(acao)) {
+    toast('Comando inválido bloqueado');
+    return;
+  }
+  if (!TOKEN || !USER_ID) {
+    toast('Sessão expirada. Entre novamente.');
+    await sair();
+    return;
+  }
   if (CONFIG && CONFIG.modo_manutencao && (!PERFIL || PERFIL.admin !== true)) {
     toast('Sistema em manutenção. Tente mais tarde.');
     return;
@@ -839,12 +868,14 @@ async function enviarComando(acao) {
   const r = await insertComando(acao, USER_ID, TOKEN);
 
   setTimeout(() => {
-    document.getElementById('btn-abrir').disabled  = false;
-    document.getElementById('btn-fechar').disabled = false;
-  }, 3000);
+    if (TOKEN && PERFIL && PERFIL.aprovado) {
+      document.getElementById('btn-abrir').disabled  = false;
+      document.getElementById('btn-fechar').disabled = false;
+    }
+  }, 2500);
 
   if (!r.ok) {
-    toast('Erro: ' + JSON.stringify(r.data));
+    toast(labelErroComando(r.data));
     return;
   }
 
@@ -887,7 +918,7 @@ async function carregarLogs() {
 
   // Busca comandos executados com join em usuarios
   const r = await supa('GET',
-    '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=15&select=acao,criado_em,executado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
+    '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=15&select=acao,criado_em,executado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
     null, TOKEN);
   if (!r.ok || !r.data || r.data.length === 0) {
     lista.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;">Nenhum acesso ainda</div>';
@@ -900,9 +931,8 @@ async function carregarLogs() {
     } else if (l.usuario_id) {
       quem = 'ID: ' + String(l.usuario_id).substring(0,8) + '...';
     }
-    const badge = l.acao === 'abrir'
-      ? '<span class="badge ba2">Abriu</span>'
-      : '<span class="badge bf2">Fechou</span>';
+    if (!acaoPortaoValida(l.acao)) return '';
+    const badge = badgeAcaoPortao(l.acao);
     return `<div class="li"><div><div class="q">${esc(quem)}</div><div class="w">${esc(fmt(l.executado_em || l.criado_em))}</div></div>${badge}</div>`;
   }).join('');
 }
@@ -981,7 +1011,7 @@ async function carregarConfigAdmin() {
 }
 
 async function atualizarResumoUltimaAcaoAdmin() {
-  const r = await supa('GET', '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=1&select=acao,executado_em,criado_em', null, TOKEN);
+  const r = await supa('GET', '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=acao,executado_em,criado_em', null, TOKEN);
   const elHora = document.getElementById('cfg-ult-acao');
   const elTipo = document.getElementById('cfg-ult-tipo');
   if (!elHora || !elTipo) return;
@@ -1058,7 +1088,7 @@ async function verificarStatus() {
   const txt = document.getElementById('s-txt');
 
   const r = await supa('GET',
-    '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
+    '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
     null, TOKEN);
 
   if (!r.ok) {
@@ -1069,7 +1099,7 @@ async function verificarStatus() {
 
   if (!r.data || r.data.length === 0) {
     dot.className = 'dot';
-    txt.textContent = 'Nenhuma ação confirmada ainda';
+    txt.textContent = 'Nenhum comando de portão confirmado ainda';
     return;
   }
 
@@ -1077,7 +1107,7 @@ async function verificarStatus() {
 
   if (!r.data[0].executado_em) {
     dot.className = 'dot';
-    txt.textContent = 'Último comando confirmado sem horário — verifique trigger/ESP32';
+    txt.textContent = 'Último comando de portão sem horário — verifique trigger/ESP32';
     return;
   }
 
@@ -1086,7 +1116,7 @@ async function verificarStatus() {
 
   if (idade <= ESP32_ONLINE_WINDOW_MS) {
     dot.className = 'dot on';
-    txt.textContent = 'Último comando confirmado — ' + fmt(retornoIso);
+    txt.textContent = 'Último comando de portão confirmado — ' + fmt(retornoIso);
     return;
   }
 
