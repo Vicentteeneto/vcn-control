@@ -282,7 +282,7 @@ input::placeholder{color:var(--text3)}
         </svg>
       </div>
       <input type="checkbox" id="lembrar" style="display:none">
-      <label onclick="toggleLembrar()" style="font-size:14px;color:var(--text2);cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0;user-select:none">Lembrar e-mail</label>
+      <label onclick="toggleLembrar()" style="font-size:14px;color:var(--text2);cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0;user-select:none">Manter conectado neste aparelho</label>
     </div>
     <div class="msg" id="m-login"></div>
     <button class="btn" id="btn-entrar">Entrar</button>
@@ -525,6 +525,9 @@ async function signUp(email, password, nome) {
 async function signOut(token) {
   return supa('POST', '/auth/v1/logout', {}, token);
 }
+async function refreshSession(refreshToken) {
+  return supa('POST', '/auth/v1/token?grant_type=refresh_token', { refresh_token: refreshToken });
+}
 
 // DB helpers
 async function getPerfil(userId, token) {
@@ -559,9 +562,6 @@ async function criarConfigPadrao(token) {
   }, token);
 }
 async function enviarComandoAdmin(acao) {
-  if (!PERFIL || PERFIL.admin !== true) {
-    return { ok:false, status:403, data:{ message:'Acesso restrito ao administrador' } };
-  }
   return supa('POST', '/rest/v1/comandos', { acao, usuario_id: USER_ID }, TOKEN);
 }
 
@@ -578,23 +578,6 @@ const STATUS_CHECK_MS = 10000;
 // Sem heartbeat real, isto evita mostrar online por causa de comando antigo.
 const ESP32_ONLINE_WINDOW_MS = 45000;
 const PERFIL_RETRY_MS = 2000;
-const ACOES_PORTAO = ['abrir', 'fechar'];
-const FILTRO_ACOES_PORTAO = 'acao=in.(abrir,fechar)';
-
-function acaoPortaoValida(acao) {
-  return ACOES_PORTAO.includes(String(acao || '').toLowerCase());
-}
-function badgeAcaoPortao(acao) {
-  if (acao === 'abrir') return '<span class="badge ba2">Abriu</span>';
-  if (acao === 'fechar') return '<span class="badge bf2">Fechou</span>';
-  return '<span class="badge" style="background:var(--bg3);color:var(--text3);border:1px solid var(--border2)">Outro</span>';
-}
-function labelErroComando(data) {
-  const raw = typeof data === 'string' ? data : JSON.stringify(data || {});
-  if (raw.includes('modo_manutencao') || raw.includes('manutenção') || raw.includes('maintenance')) return 'Sistema em manutenção';
-  if (raw.includes('permission') || raw.includes('policy') || raw.includes('403') || raw.includes('42501')) return 'Sem permissão para enviar comando';
-  return 'Falha ao enviar comando';
-}
 
 // Utils
 function toast(m) {
@@ -650,14 +633,49 @@ function fmt(iso) {
 }
 
 // Persistência de sessão
-function salvarSessao(token, userId) {
-  try { sessionStorage.setItem('tok', token); sessionStorage.setItem('uid', userId); } catch(e){}
+// Segurança: não salvamos senha. Para manter conectado, salvamos o refresh_token do Supabase.
+function salvarSessao(token, userId, refreshToken, persistir) {
+  try {
+    const storage = persistir ? localStorage : sessionStorage;
+    const outro = persistir ? sessionStorage : localStorage;
+
+    storage.setItem('tok', token || '');
+    storage.setItem('uid', userId || '');
+    if (refreshToken) storage.setItem('refresh', refreshToken);
+    storage.setItem('persist', persistir ? '1' : '0');
+
+    outro.removeItem('tok');
+    outro.removeItem('uid');
+    outro.removeItem('refresh');
+    outro.removeItem('persist');
+  } catch(e){}
 }
 function carregarSessao() {
-  try { return { token: sessionStorage.getItem('tok'), userId: sessionStorage.getItem('uid') }; } catch(e){ return {}; }
+  try {
+    const local = {
+      token: localStorage.getItem('tok'),
+      userId: localStorage.getItem('uid'),
+      refreshToken: localStorage.getItem('refresh'),
+      persistir: localStorage.getItem('persist') === '1'
+    };
+    if (local.refreshToken || (local.token && local.userId)) return local;
+
+    return {
+      token: sessionStorage.getItem('tok'),
+      userId: sessionStorage.getItem('uid'),
+      refreshToken: sessionStorage.getItem('refresh'),
+      persistir: false
+    };
+  } catch(e){ return {}; }
 }
 function limparSessao() {
-  try { sessionStorage.removeItem('tok'); sessionStorage.removeItem('uid'); } catch(e){}
+  try {
+    ['tok','uid','refresh','persist'].forEach(k => {
+      sessionStorage.removeItem(k);
+      localStorage.removeItem(k);
+    });
+    localStorage.removeItem('vcn_keep_login');
+  } catch(e){}
 }
 
 // Login
@@ -708,20 +726,25 @@ function toggleLembrar() {
   }
 }
 
-// Carrega credenciais salvas ao abrir
+// Carrega preferências salvas ao abrir
 window.addEventListener('DOMContentLoaded', () => {
   try {
-    const saved = localStorage.getItem('vcn_creds');
-    if (saved) {
-      const c = JSON.parse(saved);
-      document.getElementById('l-email').value = c.email || '';
+    const emailSalvo = localStorage.getItem('vcn_email') || '';
+    const manterConectado = localStorage.getItem('vcn_keep_login') === '1';
+
+    if (emailSalvo) {
+      document.getElementById('l-email').value = emailSalvo;
+    }
+
+    if (manterConectado) {
       document.getElementById('lembrar').checked = true;
       document.getElementById('lembrar-box').style.background = '#2563eb';
       document.getElementById('lembrar-box').setAttribute('aria-checked', 'true');
       document.getElementById('lembrar-check').style.display = 'block';
-      // Remove senha antiga que tenha sido gravada por versões anteriores.
-      localStorage.setItem('vcn_creds', JSON.stringify({ email: c.email || '' }));
     }
+
+    // Limpeza de segurança: versões antigas não devem manter senha em localStorage.
+    localStorage.removeItem('vcn_creds');
   } catch(e) {}
 });
 
@@ -735,14 +758,19 @@ document.getElementById('btn-entrar').onclick = async () => {
   const r = await signIn(email, senha);
   btn.disabled = false; btn.textContent = 'Entrar';
   if (!r.ok) { setMsg('m-login','E-mail ou senha incorretos','erro'); return; }
-  // Salva ou remove credenciais
+  // Salva preferência de login sem gravar senha no navegador.
   try {
-    if (lembrar) localStorage.setItem('vcn_creds', JSON.stringify({ email }));
-    else localStorage.removeItem('vcn_creds');
+    if (lembrar) {
+      localStorage.setItem('vcn_email', email);
+      localStorage.setItem('vcn_keep_login', '1');
+    } else {
+      localStorage.removeItem('vcn_email');
+      localStorage.removeItem('vcn_keep_login');
+    }
   } catch(e) {}
   TOKEN = r.data.access_token;
   USER_ID = r.data.user.id;
-  salvarSessao(TOKEN, USER_ID);
+  salvarSessao(TOKEN, USER_ID, r.data.refresh_token, lembrar);
   await carregarPerfil();
 };
 
@@ -849,15 +877,6 @@ async function carregarPerfil() {
 
 // Comandos
 async function enviarComando(acao) {
-  if (!acaoPortaoValida(acao)) {
-    toast('Comando inválido bloqueado');
-    return;
-  }
-  if (!TOKEN || !USER_ID) {
-    toast('Sessão expirada. Entre novamente.');
-    await sair();
-    return;
-  }
   if (CONFIG && CONFIG.modo_manutencao && (!PERFIL || PERFIL.admin !== true)) {
     toast('Sistema em manutenção. Tente mais tarde.');
     return;
@@ -868,14 +887,12 @@ async function enviarComando(acao) {
   const r = await insertComando(acao, USER_ID, TOKEN);
 
   setTimeout(() => {
-    if (TOKEN && PERFIL && PERFIL.aprovado) {
-      document.getElementById('btn-abrir').disabled  = false;
-      document.getElementById('btn-fechar').disabled = false;
-    }
-  }, 2500);
+    document.getElementById('btn-abrir').disabled  = false;
+    document.getElementById('btn-fechar').disabled = false;
+  }, 3000);
 
   if (!r.ok) {
-    toast(labelErroComando(r.data));
+    toast('Erro: ' + JSON.stringify(r.data));
     return;
   }
 
@@ -918,7 +935,7 @@ async function carregarLogs() {
 
   // Busca comandos executados com join em usuarios
   const r = await supa('GET',
-    '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=15&select=acao,criado_em,executado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
+    '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=15&select=acao,criado_em,executado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
     null, TOKEN);
   if (!r.ok || !r.data || r.data.length === 0) {
     lista.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;">Nenhum acesso ainda</div>';
@@ -931,8 +948,9 @@ async function carregarLogs() {
     } else if (l.usuario_id) {
       quem = 'ID: ' + String(l.usuario_id).substring(0,8) + '...';
     }
-    if (!acaoPortaoValida(l.acao)) return '';
-    const badge = badgeAcaoPortao(l.acao);
+    const badge = l.acao === 'abrir'
+      ? '<span class="badge ba2">Abriu</span>'
+      : '<span class="badge bf2">Fechou</span>';
     return `<div class="li"><div><div class="q">${esc(quem)}</div><div class="w">${esc(fmt(l.executado_em || l.criado_em))}</div></div>${badge}</div>`;
   }).join('');
 }
@@ -1011,7 +1029,7 @@ async function carregarConfigAdmin() {
 }
 
 async function atualizarResumoUltimaAcaoAdmin() {
-  const r = await supa('GET', '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=acao,executado_em,criado_em', null, TOKEN);
+  const r = await supa('GET', '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=1&select=acao,executado_em,criado_em', null, TOKEN);
   const elHora = document.getElementById('cfg-ult-acao');
   const elTipo = document.getElementById('cfg-ult-tipo');
   if (!elHora || !elTipo) return;
@@ -1088,7 +1106,7 @@ async function verificarStatus() {
   const txt = document.getElementById('s-txt');
 
   const r = await supa('GET',
-    '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
+    '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
     null, TOKEN);
 
   if (!r.ok) {
@@ -1099,7 +1117,7 @@ async function verificarStatus() {
 
   if (!r.data || r.data.length === 0) {
     dot.className = 'dot';
-    txt.textContent = 'Nenhum comando de portão confirmado ainda';
+    txt.textContent = 'Nenhuma ação confirmada ainda';
     return;
   }
 
@@ -1107,7 +1125,7 @@ async function verificarStatus() {
 
   if (!r.data[0].executado_em) {
     dot.className = 'dot';
-    txt.textContent = 'Último comando de portão sem horário — verifique trigger/ESP32';
+    txt.textContent = 'Último comando confirmado sem horário — verifique trigger/ESP32';
     return;
   }
 
@@ -1116,7 +1134,7 @@ async function verificarStatus() {
 
   if (idade <= ESP32_ONLINE_WINDOW_MS) {
     dot.className = 'dot on';
-    txt.textContent = 'Último comando de portão confirmado — ' + fmt(retornoIso);
+    txt.textContent = 'Último comando confirmado — ' + fmt(retornoIso);
     return;
   }
 
@@ -1136,8 +1154,24 @@ async function remover(id) {
 // Restaurar sessão ao carregar
 window.addEventListener('load', async () => {
   const s = carregarSessao();
+
+  // Se o usuário marcou "manter conectado", renova a sessão com refresh_token.
+  if (s.refreshToken) {
+    const r = await refreshSession(s.refreshToken);
+    if (r.ok && r.data && r.data.access_token && r.data.user) {
+      TOKEN = r.data.access_token;
+      USER_ID = r.data.user.id;
+      salvarSessao(TOKEN, USER_ID, r.data.refresh_token || s.refreshToken, s.persistir);
+      await carregarPerfil();
+      return;
+    }
+    limparSessao();
+  }
+
+  // Sessão temporária da aba atual.
   if (s.token && s.userId) {
-    TOKEN = s.token; USER_ID = s.userId;
+    TOKEN = s.token;
+    USER_ID = s.userId;
     await carregarPerfil();
   }
 });
