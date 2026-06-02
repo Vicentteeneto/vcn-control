@@ -785,7 +785,34 @@ document.getElementById('btn-cad').onclick = async () => {
   const r = await signUp(email, senha, nome);
   btn.disabled = false; btn.textContent = 'Criar conta';
   if (!r.ok) {
-    const msg = r.data && r.data.message ? r.data.message : 'Erro ao criar conta';
+    console.error('Erro ao criar conta:', r.status, r.data);
+
+    let msg = 'Erro ao criar conta';
+
+    if (r.data) {
+      if (r.data.msg) msg = r.data.msg;
+      else if (r.data.message) msg = r.data.message;
+      else if (r.data.error_description) msg = r.data.error_description;
+      else if (r.data.error) msg = r.data.error;
+      else msg = JSON.stringify(r.data);
+    }
+
+    const msgLower = String(msg).toLowerCase();
+
+    if (msgLower.includes('already') || msgLower.includes('registered') || msgLower.includes('user already')) {
+      msg = 'Este e-mail já possui cadastro. Use “Entrar” ou “Esqueci minha senha”.';
+    } else if (msgLower.includes('password') || msgLower.includes('senha')) {
+      msg = 'Senha recusada. Use pelo menos 6 caracteres, com letras e números.';
+    } else if (msgLower.includes('rate') || msgLower.includes('too many')) {
+      msg = 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+    } else if (msgLower.includes('email')) {
+      msg = 'E-mail recusado ou inválido. Confira se foi digitado corretamente.';
+    } else if (r.status === 0) {
+      msg = 'Falha de conexão. Verifique a internet e tente novamente.';
+    } else {
+      msg = msg + ' (código ' + r.status + ')';
+    }
+
     setMsg('m-cad', msg, 'erro');
     return;
   }
@@ -877,6 +904,10 @@ async function carregarPerfil() {
 
 // Comandos
 async function enviarComando(acao) {
+  if (!['abrir', 'fechar'].includes(acao)) {
+    toast('Ação inválida bloqueada por segurança.');
+    return;
+  }
   if (CONFIG && CONFIG.modo_manutencao && (!PERFIL || PERFIL.admin !== true)) {
     toast('Sistema em manutenção. Tente mais tarde.');
     return;
@@ -892,7 +923,11 @@ async function enviarComando(acao) {
   }, 3000);
 
   if (!r.ok) {
-    toast('Erro: ' + JSON.stringify(r.data));
+    let msg = 'Falha ao enviar comando';
+    if (r.status === 401 || r.status === 403) msg = 'Sem permissão para enviar comando';
+    else if (r.status === 0) msg = 'Falha de conexão';
+    else if (r.data && (r.data.message || r.data.msg)) msg = r.data.message || r.data.msg;
+    toast(msg);
     return;
   }
 
@@ -935,7 +970,7 @@ async function carregarLogs() {
 
   // Busca comandos executados com join em usuarios
   const r = await supa('GET',
-    '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=15&select=acao,criado_em,executado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
+    '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=15&select=acao,criado_em,executado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
     null, TOKEN);
   if (!r.ok || !r.data || r.data.length === 0) {
     lista.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;">Nenhum acesso ainda</div>';
@@ -1029,7 +1064,7 @@ async function carregarConfigAdmin() {
 }
 
 async function atualizarResumoUltimaAcaoAdmin() {
-  const r = await supa('GET', '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=1&select=acao,executado_em,criado_em', null, TOKEN);
+  const r = await supa('GET', '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=acao,executado_em,criado_em', null, TOKEN);
   const elHora = document.getElementById('cfg-ult-acao');
   const elTipo = document.getElementById('cfg-ult-tipo');
   if (!elHora || !elTipo) return;
@@ -1106,7 +1141,7 @@ async function verificarStatus() {
   const txt = document.getElementById('s-txt');
 
   const r = await supa('GET',
-    '/rest/v1/comandos?executado=eq.true&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
+    '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
     null, TOKEN);
 
   if (!r.ok) {
