@@ -1165,15 +1165,31 @@ window.addEventListener('load', async () => {
       await carregarPerfil();
       return;
     }
+    // Refresh falhou — sessão corrompida ou expirada, limpa tudo
     limparSessao();
+    setMsg('m-login', 'Sessão expirada. Entre novamente.', 'erro');
+    tela('t-login');
+    return;
   }
 
   // Sessão temporária da aba atual.
   if (s.token && s.userId) {
+    // Testa se o token ainda é válido antes de usar
+    const r = await getPerfil(s.userId, s.token);
+    if (r.status === 401 || r.status === 403 || !r.ok) {
+      limparSessao();
+      tela('t-login');
+      return;
+    }
     TOKEN = s.token;
     USER_ID = s.userId;
     await carregarPerfil();
+    return;
   }
+
+  // Nenhuma sessão — garante tela de login limpa
+  limparSessao();
+  tela('t-login');
 });
 </script>
 <script>
