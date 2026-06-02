@@ -1,15 +1,25 @@
 {
   "name": "VCN Control",
-  "short_name": "VCN",
-  "description": "Controle de acesso privado",
-  "start_url": "./index.html",
+  "short_name": "VCN Control",
+  "description": "Controle de acesso ao portão",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
   "background_color": "#050510",
   "theme_color": "#050510",
+  "orientation": "portrait",
   "icons": [
-    { "src": "./assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "./assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "./assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
   ]
 }

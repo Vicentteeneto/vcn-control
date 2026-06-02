@@ -1,37 +1,25 @@
-const CACHE_NAME = 'vcn-control-v9';
+const CACHE_NAME = 'vcn-control-v1';
+const ASSETS = ['./'];
 
-const STATIC_FILES = [
-  './',
-  './index.html',
-  './manifest.json',
-  './assets/icon-192.png',
-  './assets/icon-512.png'
-];
-
-self.addEventListener('install', event => {
-  self.skipWaiting();
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_FILES)));
-});
-
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))))
-      .then(() => self.clients.claim())
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE_NAME).then(c => c.addAll(ASSETS))
   );
+  self.skipWaiting();
 });
 
-self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
+});
 
-  if (url.hostname.includes('supabase.co')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
-  if (event.request.mode === 'navigate') {
-    event.respondWith(fetch(event.request).catch(() => caches.match('./index.html')));
-    return;
-  }
-
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
+self.addEventListener('fetch', e => {
+  // Sempre busca da rede primeiro; cai no cache só se offline
+  e.respondWith(
+    fetch(e.request).catch(() => caches.match(e.request))
+  );
 });
