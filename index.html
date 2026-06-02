@@ -1177,16 +1177,126 @@ window.addEventListener('load', async () => {
 });
 </script>
 <script>
+// ---- SERVICE WORKER ----
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('./service-worker.js');
-      console.log('Service Worker registrado:', registration.scope);
-    } catch (error) {
-      console.error('Erro ao registrar Service Worker:', error);
+      await navigator.serviceWorker.register('./service-worker.js');
+    } catch (e) {
+      console.error('SW erro:', e);
     }
   });
 }
+
+// ---- PWA INSTALL BANNER ----
+(function () {
+  const STORAGE_KEY = 'vcn-pwa-dismissed';
+
+  // Não mostra se já foi dispensado há menos de 7 dias
+  function foiDispensado() {
+    const t = localStorage.getItem(STORAGE_KEY);
+    if (!t) return false;
+    return Date.now() - Number(t) < 7 * 24 * 60 * 60 * 1000;
+  }
+
+  function criarBanner(innerHTML, onInstall, onFechar) {
+    if (document.getElementById('pwa-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'pwa-banner';
+    banner.style.cssText = [
+      'position:fixed','bottom:24px','left:50%','transform:translateX(-50%)',
+      'background:rgba(10,10,26,0.97)','color:#f1f5f9',
+      'border:1px solid rgba(37,99,235,0.35)',
+      'border-radius:20px','padding:18px 20px',
+      'display:flex','flex-direction:column','gap:14px',
+      'z-index:9999','width:calc(100% - 40px)','max-width:370px',
+      'box-shadow:0 8px 40px rgba(0,0,0,0.7),0 0 0 1px rgba(37,99,235,0.1)',
+      'backdrop-filter:blur(16px)','-webkit-backdrop-filter:blur(16px)',
+      'font-family:-apple-system,BlinkMacSystemFont,sans-serif',
+      'animation:slideUp .3s ease'
+    ].join(';');
+
+    // Injeta keyframe uma vez
+    if (!document.getElementById('pwa-kf')) {
+      const s = document.createElement('style');
+      s.id = 'pwa-kf';
+      s.textContent = '@keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+      document.head.appendChild(s);
+    }
+
+    banner.innerHTML = innerHTML;
+    document.body.appendChild(banner);
+
+    if (onInstall) {
+      const btnI = document.getElementById('pwa-btn-instalar');
+      if (btnI) btnI.onclick = onInstall;
+    }
+    const btnF = document.getElementById('pwa-btn-fechar');
+    if (btnF) btnF.onclick = () => {
+      localStorage.setItem(STORAGE_KEY, Date.now());
+      banner.remove();
+      if (onFechar) onFechar();
+    };
+  }
+
+  // ---- ANDROID / CHROME ----
+  let deferredPrompt = null;
+
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredPrompt = e;
+
+    if (foiDispensado()) return;
+
+    criarBanner(
+      `<div style="display:flex;align-items:center;gap:12px">
+        <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(145deg,#0d1829,#060d1a);border:1px solid rgba(37,99,235,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <img src="./assets/icon-192.png" style="width:32px;height:32px;border-radius:8px">
+        </div>
+        <div>
+          <div style="font-size:15px;font-weight:700">Instalar VCN Control</div>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">Adicionar à tela inicial</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="pwa-btn-instalar" style="flex:1;padding:13px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(37,99,235,0.4)">Instalar</button>
+        <button id="pwa-btn-fechar" style="padding:13px 16px;background:rgba(255,255,255,0.05);color:#94a3b8;border:1px solid rgba(255,255,255,0.08);border-radius:12px;font-size:14px;font-weight:600;cursor:pointer">Agora não</button>
+      </div>`,
+      async () => {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        document.getElementById('pwa-banner')?.remove();
+      }
+    );
+  });
+
+  // ---- iOS / SAFARI ----
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.navigator.standalone === true;
+
+  if (isIOS && !isStandalone && !foiDispensado()) {
+    setTimeout(() => {
+      criarBanner(
+        `<div style="display:flex;align-items:center;gap:12px">
+          <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(145deg,#0d1829,#060d1a);border:1px solid rgba(37,99,235,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <img src="./assets/icon-192.png" style="width:32px;height:32px;border-radius:8px">
+          </div>
+          <div>
+            <div style="font-size:15px;font-weight:700">Instalar VCN Control</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px">Adicionar à tela inicial</div>
+          </div>
+        </div>
+        <div style="font-size:13px;color:#94a3b8;line-height:1.6;background:rgba(255,255,255,0.04);border-radius:12px;padding:12px 14px">
+          Toque em <strong style="color:#f1f5f9">Compartilhar</strong>
+          <span style="font-size:16px"> ⬆</span> na barra do Safari e depois em
+          <strong style="color:#f1f5f9">"Adicionar à Tela de Início"</strong>
+        </div>
+        <button id="pwa-btn-fechar" style="width:100%;padding:13px;background:rgba(255,255,255,0.05);color:#94a3b8;border:1px solid rgba(255,255,255,0.08);border-radius:12px;font-size:14px;font-weight:600;cursor:pointer">Entendido</button>`
+      );
+    }, 2000);
+  }
+})();
 </script>
 </body>
 </html>
