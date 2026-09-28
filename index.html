@@ -390,6 +390,13 @@ button{font-family:inherit}
     <button class="btn" id="btn-cad">Criar conta</button>
     <button class="btn-link" id="ir-login">Já tem conta? Entrar</button>
   </div>
+  <div class="card" id="c-nova" style="display:none">
+    <div class="card-label">Definir nova senha</div>
+    <div class="field"><label for="n-senha">Nova senha</label><div class="pw-wrap"><input type="password" id="n-senha" placeholder="Mínimo 6 caracteres" autocomplete="new-password" minlength="6" enterkeyhint="next"><button type="button" class="pw-toggle" aria-label="Mostrar senha" aria-pressed="false" data-pw="n-senha"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+    <div class="field"><label for="n-senha2">Confirmar nova senha</label><div class="pw-wrap"><input type="password" id="n-senha2" placeholder="Repita a senha" autocomplete="new-password" minlength="6" enterkeyhint="go"><button type="button" class="pw-toggle" aria-label="Mostrar senha" aria-pressed="false" data-pw="n-senha2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+    <div class="msg" id="m-nova" role="alert" aria-live="assertive"></div>
+    <button class="btn" id="btn-nova">Salvar nova senha</button>
+  </div>
   <div class="brand-foot"><svg viewBox="0 0 780 365" aria-hidden="true"><use href="#vcn-mark"/></svg>VCN Systems</div>
 </div>
 
@@ -615,7 +622,15 @@ async function signIn(email, password) {
   return supa('POST', '/auth/v1/token?grant_type=password', { email, password });
 }
 async function signUp(email, password, nome) {
-  return supa('POST', '/auth/v1/signup', { email, password, data: { nome } });
+  return supa('POST', '/auth/v1/signup?redirect_to=' + encodeURIComponent(APP_URL), { email, password, data: { nome } });
+}
+// Links de e-mail (confirmação/recuperação) voltam para este mesmo endereço.
+const APP_URL = location.origin + location.pathname;
+async function getUser(token) {
+  return supa('GET', '/auth/v1/user', null, token);
+}
+async function updateUser(data, token) {
+  return supa('PUT', '/auth/v1/user', data, token);
 }
 async function signOut(token) {
   return supa('POST', '/auth/v1/logout', {}, token);
@@ -828,7 +843,7 @@ document.getElementById('btn-esqueci').onclick = async () => {
   btn.textContent = 'Enviando...';
   btn.disabled = true;
 
-  const r = await supa('POST', '/auth/v1/recover', { email });
+  const r = await supa('POST', '/auth/v1/recover?redirect_to=' + encodeURIComponent(APP_URL), { email });
 
   btn.disabled = false;
   btn.textContent = 'Esqueci minha senha';
@@ -1063,7 +1078,7 @@ async function enviarComando(acao) {
 
   if (!r.ok) {
     let msg = 'Falha ao enviar comando';
-    if (r.status === 401 || r.status === 403) msg = 'Sem permissão para enviar comando';
+    if (r.status === 401 || r.status === 403) msg = (CONFIG && CONFIG.modo_manutencao) ? 'Portão em manutenção' : 'Sem permissão para enviar comando';
     else if (r.status === 0) msg = 'Falha de conexão';
     else if (r.data && (r.data.message || r.data.msg)) msg = r.data.message || r.data.msg;
     toast(msg);
@@ -1244,16 +1259,17 @@ document.getElementById('btn-salvar-config').onclick = async () => {
 document.getElementById('btn-modo-wifi').onclick = async () => {
   if (!PERFIL || PERFIL.admin !== true) return toast('Acesso restrito');
   if (!confirm('Solicitar modo configuração Wi-Fi ao ESP32? Só funciona se o firmware estiver preparado.')) return;
-  await salvarConfig({ modo_config_wifi: true, atualizado_em: new Date().toISOString(), atualizado_por: USER_ID }, TOKEN);
-  const r = await enviarComandoAdmin('config_wifi');
-  toast(r.ok ? 'Comando de Wi-Fi enviado' : 'Falha ao enviar comando Wi-Fi');
+  const r = await salvarConfig({ modo_config_wifi: true, atualizado_em: new Date().toISOString(), atualizado_por: USER_ID }, TOKEN);
+  toast(r.ok ? 'Solicitação de Wi-Fi registrada' : 'Falha ao registrar solicitação');
 };
 
 document.getElementById('btn-reiniciar-esp').onclick = async () => {
   if (!PERFIL || PERFIL.admin !== true) return toast('Acesso restrito');
   if (!confirm('Reiniciar o ESP32? Só funciona se o firmware estiver preparado.')) return;
   const r = await enviarComandoAdmin('reiniciar_esp32');
-  toast(r.ok ? 'Comando de reinício enviado' : 'Falha ao enviar reinício');
+  if (r.ok) return toast('Comando de reinício enviado');
+  const m = JSON.stringify(r.data || '');
+  toast(m.includes('check') || m.includes('23514') ? 'Reinício ainda não habilitado no banco/firmware' : 'Falha ao enviar reinício');
 };
 
 async function carregarUsuarios() {
@@ -1318,10 +1334,21 @@ async function verificarStatus() {
   }
   bar.classList.remove('offline');
 
+  await carregarConfigSilencioso();
+  const manut = !!(CONFIG && CONFIG.modo_manutencao);
+  bar.classList.toggle('offline', manut);
+
   // Usuário comum: não consulta nem exibe o histórico de comandos (só para admin).
   if (!PERFIL || PERFIL.admin !== true) {
-    dot.className = 'dot on';
-    txt.textContent = 'Conectado — pronto para uso';
+    document.getElementById('btn-abrir').disabled  = manut;
+    document.getElementById('btn-fechar').disabled = manut;
+    dot.className = manut ? 'dot' : 'dot on';
+    txt.textContent = manut ? 'Portão em manutenção — comandos bloqueados' : 'Conectado — pronto para uso';
+    return;
+  }
+  if (manut) {
+    dot.className = 'dot';
+    txt.textContent = 'Modo manutenção ativo — só administradores podem acionar';
     return;
   }
 
@@ -1420,7 +1447,85 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // Restaurar sessão ao carregar
+// Trata o retorno dos links enviados por e-mail (#access_token=...&type=recovery|signup)
+async function tratarRetornoEmail() {
+  if (!location.hash || location.hash.length < 2) return false;
+  const h = new URLSearchParams(location.hash.slice(1));
+  // Remove tokens da barra de endereço imediatamente (não ficam no histórico).
+  history.replaceState(null, '', APP_URL + location.search);
+
+  if (h.get('error') || h.get('error_description')) {
+    tela('t-login');
+    setMsg('m-login', h.get('error_code') === 'otp_expired'
+      ? 'Link expirado. Peça um novo em "Esqueci minha senha".'
+      : 'Link inválido ou já utilizado. Tente novamente.', 'erro');
+    return true;
+  }
+  const access = h.get('access_token');
+  if (!access) return false;
+
+  const u = await getUser(access);
+  if (!u.ok || !u.data || !u.data.id) {
+    tela('t-login');
+    setMsg('m-login', 'Não foi possível validar o link. Tente novamente.', 'erro');
+    return true;
+  }
+  const sessao = {
+    access_token: access,
+    refresh_token: h.get('refresh_token'),
+    expires_in: Number(h.get('expires_in')) || 3600,
+    user: u.data
+  };
+
+  if (h.get('type') === 'recovery') {
+    PENDENTE_RECUPERACAO = sessao;
+    document.getElementById('c-login').style.display = 'none';
+    document.getElementById('c-cad').style.display = 'none';
+    document.getElementById('c-nova').style.display = 'flex';
+    tela('t-login');
+    document.getElementById('n-senha').focus();
+    return true;
+  }
+
+  // Confirmação de cadastro / link mágico: entra direto.
+  aplicarSessao(sessao, false);
+  toast('E-mail confirmado');
+  await carregarPerfil();
+  return true;
+}
+
+let PENDENTE_RECUPERACAO = null;
+document.getElementById('btn-nova').onclick = async () => {
+  const s1 = document.getElementById('n-senha').value;
+  const s2 = document.getElementById('n-senha2').value;
+  if (!PENDENTE_RECUPERACAO) return setMsg('m-nova', 'Link de recuperação inválido. Peça um novo.', 'erro');
+  if (s1.length < 6) return setMsg('m-nova', 'A senha precisa ter pelo menos 6 caracteres', 'erro');
+  if (s1 !== s2) return setMsg('m-nova', 'As senhas não conferem', 'erro');
+  const btn = document.getElementById('btn-nova');
+  btn.disabled = true; btn.textContent = 'Salvando...';
+  const r = await updateUser({ password: s1 }, PENDENTE_RECUPERACAO.access_token);
+  btn.disabled = false; btn.textContent = 'Salvar nova senha';
+  if (!r.ok) {
+    const m = String((r.data && (r.data.msg || r.data.message || r.data.error_description)) || '').toLowerCase();
+    setMsg('m-nova', m.includes('different') || m.includes('same')
+      ? 'A nova senha precisa ser diferente da anterior'
+      : r.status === 0 ? 'Falha de conexão. Tente novamente.' : 'Não foi possível salvar a senha. Peça um novo link.', 'erro');
+    return;
+  }
+  document.getElementById('n-senha').value = '';
+  document.getElementById('n-senha2').value = '';
+  document.getElementById('c-nova').style.display = 'none';
+  document.getElementById('c-login').style.display = 'flex';
+  aplicarSessao(PENDENTE_RECUPERACAO, false);
+  PENDENTE_RECUPERACAO = null;
+  toast('Senha alterada com sucesso');
+  await carregarPerfil();
+};
+aoEnter(['n-senha'], () => document.getElementById('n-senha2').focus());
+aoEnter(['n-senha2'], () => document.getElementById('btn-nova').click());
+
 window.addEventListener('load', async () => {
+  if (await tratarRetornoEmail()) return;
   const s = carregarSessao();
 
   // Se o usuário marcou "manter conectado", renova a sessão com refresh_token.
