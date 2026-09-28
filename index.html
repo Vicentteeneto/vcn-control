@@ -1073,8 +1073,10 @@ async function enviarComando(acao) {
   // Não marque como online aqui.
   // O app só pode mostrar retorno quando o ESP32 realmente marcar o comando como executado no banco.
   toast(acao === 'abrir' ? '🔓 Comando de abrir enviado' : '🔒 Comando de fechar enviado');
-  document.getElementById('s-dot').className = 'dot';
-  document.getElementById('s-txt').textContent = 'Comando enviado — aguardando confirmação do ESP32';
+  if (PERFIL && PERFIL.admin === true) {
+    document.getElementById('s-dot').className = 'dot';
+    document.getElementById('s-txt').textContent = 'Comando enviado — aguardando confirmação do ESP32';
+  }
 
   // O histórico só deve atualizar quando o ESP32 confirmar no banco.
   setTimeout(carregarLogs, 2000);
@@ -1315,6 +1317,13 @@ async function verificarStatus() {
     return;
   }
   bar.classList.remove('offline');
+
+  // Usuário comum: não consulta nem exibe o histórico de comandos (só para admin).
+  if (!PERFIL || PERFIL.admin !== true) {
+    dot.className = 'dot on';
+    txt.textContent = 'Conectado — pronto para uso';
+    return;
+  }
 
   const r = await supa('GET',
     '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
