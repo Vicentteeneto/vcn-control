@@ -242,6 +242,13 @@ button{font-family:inherit}
 .u-ok{color:var(--green);font-size:var(--fs-xs)}
 .u-wait{color:var(--amber);font-size:var(--fs-xs)}
 .u-self{color:var(--text3);font-size:var(--fs-xs)}
+.u-sec{display:flex;flex-direction:column;gap:8px}
+.u-sec + .u-sec{margin-top:10px}
+.u-sec .sec-title{margin-bottom:2px;display:flex;align-items:center;gap:8px}
+.u-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 6px;border-radius:9px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-size:.625rem;letter-spacing:0}
+.uc-me{background:linear-gradient(135deg,rgba(24,225,223,.08),rgba(8,102,255,.10));border-color:rgba(16,168,255,.45);box-shadow:0 0 0 1px rgba(16,168,255,.12),0 8px 28px rgba(8,102,255,.15)}
+.uc-me .avatar{background:var(--vcn-gradient)}
+.role-badge{flex-shrink:0;font-family:var(--font-display);font-size:.625rem;font-weight:700;letter-spacing:.14em;padding:5px 10px;border-radius:20px;color:var(--vcn-cyan);background:rgba(24,225,223,.08);border:1px solid rgba(24,225,223,.35)}
 .empty{color:var(--text3);text-align:center;padding:24px;font-size:var(--fs-sm)}
 
 /* ADMIN CONFIGURAÇÕES */
@@ -503,7 +510,7 @@ button{font-family:inherit}
   </div>
 
   <div class="admin-panel ativa" id="painel-usuarios">
-    <div style="display:flex;flex-direction:column;gap:10px" id="lista-u">
+    <div style="display:flex;flex-direction:column;gap:10px" id="lista-u" aria-live="polite">
       <div style="color:var(--text3);text-align:center;padding:32px;">Carregando...</div>
     </div>
   </div>
@@ -1250,23 +1257,48 @@ document.getElementById('btn-reiniciar-esp').onclick = async () => {
 async function carregarUsuarios() {
   const r = await getUsuarios(TOKEN);
   const lista = document.getElementById('lista-u');
-  if (!r.ok || !r.data || r.data.length === 0) {
+  if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) {
     lista.innerHTML = '<div class="empty">Nenhum usuário</div>'; return;
   }
   atualizarPendentes(r.data);
-  lista.innerHTML = r.data.map(u => {
-    const inicial = esc(String(u.nome || u.email || '?').trim().charAt(0).toUpperCase() || '?');
-    const badge = u.aprovado ? '<span class="u-ok" aria-label="Aprovado">✓</span>' : '<span class="u-wait" aria-label="Aguardando">⏳</span>';
-    const id = esc(u.id);
-    const nome = esc(u.nome || '(sem nome)');
-    const email = esc(u.email || '');
-    const acoes = u.id === USER_ID ? '<span class="u-self">Você</span>' : `
-      <div class="uac">
-        ${!u.aprovado ? `<button class="bap" onclick="aprovar('${id}')">Aprovar</button>` : ''}
-        ${u.aprovado && !u.admin ? `<button class="brm" onclick="remover('${id}')">Revogar</button>` : ''}
-      </div>`;
-    return `<div class="uc"><div class="avatar" aria-hidden="true">${inicial}</div><div class="uc-info"><div class="n">${nome} ${badge}</div><div class="e">${email}</div></div>${acoes}</div>`;
-  }).join('');
+
+  // Separa o perfil do administrador logado dos demais usuários.
+  const eu        = r.data.find(u => u.id === USER_ID);
+  const outros    = r.data.filter(u => u.id !== USER_ID);
+  const admins    = outros.filter(u => u.admin === true);
+  const pendentes = outros.filter(u => u.admin !== true && !u.aprovado);
+  const ativos    = outros.filter(u => u.admin !== true && u.aprovado);
+
+  const inicial = u => esc(String(u.nome || u.email || '?').trim().charAt(0).toUpperCase() || '?');
+  const cartao = (u, acoes, extra = '') => `
+    <div class="uc${extra}">
+      <div class="avatar" aria-hidden="true">${inicial(u)}</div>
+      <div class="uc-info"><div class="n">${esc(u.nome || '(sem nome)')}</div><div class="e">${esc(u.email || '')}</div></div>
+      ${acoes}
+    </div>`;
+  const secao = (titulo, itens, vazio) => `
+    <section class="u-sec" aria-label="${titulo}">
+      <div class="sec-title">${titulo} <span class="u-count">${itens.length}</span></div>
+      ${itens.length ? itens.join('') : `<div class="empty">${vazio}</div>`}
+    </section>`;
+
+  let html = '';
+  if (eu) {
+    html += `<section class="u-sec" aria-label="Meu perfil">
+      <div class="sec-title">Meu perfil</div>
+      ${cartao(eu, '<span class="role-badge">ADMIN</span>', ' uc-me')}
+    </section>`;
+  }
+  if (admins.length) {
+    html += secao('Administradores', admins.map(u => cartao(u, '<span class="role-badge">ADMIN</span>')), '');
+  }
+  html += secao('Aguardando aprovação', pendentes.map(u => cartao(u,
+    `<div class="uac"><button class="bap" onclick="aprovar('${esc(u.id)}')">Aprovar</button></div>`)),
+    'Nenhuma solicitação pendente');
+  html += secao('Usuários ativos', ativos.map(u => cartao(u,
+    `<div class="uac"><button class="brm" onclick="remover('${esc(u.id)}')">Revogar</button></div>`)),
+    'Nenhum usuário comum ativo');
+  lista.innerHTML = html;
 }
 
 // ---- STATUS ESP32 ----

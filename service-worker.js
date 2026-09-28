@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vcn-control-v14';
+const CACHE_NAME = 'vcn-control-v15';
 
 const STATIC_FILES = [
   './',
