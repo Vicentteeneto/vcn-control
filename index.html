@@ -561,8 +561,9 @@ button{font-family:inherit}
       </div>
       <div class="cfg-actions">
         <button class="btn-mini" id="btn-modo-wifi">Solicitar modo Wi-Fi</button>
-        <button class="btn-danger" id="btn-reiniciar-esp">Reiniciar ESP32</button>
+        <button class="btn-danger" id="btn-reiniciar-esp" disabled aria-describedby="nota-reinicio" style="opacity:.45;cursor:not-allowed">Reiniciar ESP32</button>
       </div>
+      <div class="config-desc" id="nota-reinicio"><b>Reiniciar ESP32</b> fica desativado até o banco aceitar a ação <b>reiniciar_esp32</b> (hoje a tabela comandos só aceita abrir/fechar).</div>
       <div class="config-desc">Esses botões enviam comandos administrativos. Eles só terão efeito quando o firmware do ESP32 estiver preparado para as ações <b>config_wifi</b> e <b>reiniciar_esp32</b>.</div>
     </div>
 
