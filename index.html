@@ -164,7 +164,19 @@ button{font-family:inherit}
 .msg.ok{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border);display:block}
 
 /* HEADER */
-.app-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 0}
+/* Barra superior com a marca */
+#t-app,#t-admin{margin-bottom:auto;padding-top:4px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 0 14px;border-bottom:1px solid var(--border)}
+.brand-lockup{display:flex;align-items:center;gap:10px;min-width:0}
+.brand-lockup svg{width:58px;height:auto;flex-shrink:0;filter:drop-shadow(0 4px 14px rgba(16,168,255,.3))}
+.brand-name{font-family:var(--font-display);font-weight:700;font-size:1.05rem;letter-spacing:.04em;color:var(--text);line-height:1;display:flex;flex-direction:column}
+.brand-name b{font-weight:500;font-size:.62rem;letter-spacing:.32em;color:var(--vcn-azure);margin-top:4px}
+.btn-sec .ic{width:18px;height:18px;flex-shrink:0}
+.btn-sec{gap:6px}
+.app-header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:2px 0}
+.app-title{min-width:0}
+.app-title h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:360px){.btn-sec span:not(.pill){display:none}.btn-sec{padding:10px 12px}.brand-lockup svg{width:48px}}
 .app-header h2{font-family:var(--font-display);font-size:var(--fs-xl);font-weight:700;letter-spacing:-.01em}
 .app-header p{font-size:var(--fs-sm);color:var(--text3);margin-top:3px;font-weight:500}
 .hrow{display:flex;gap:8px;align-items:center}
@@ -393,12 +405,19 @@ button{font-family:inherit}
 
 <!-- APP -->
 <div class="tela" id="t-app">
-  <div class="app-header">
-    <div><h2>Portão</h2><p id="u-nome"></p></div>
-    <div class="hrow">
-      <button class="btn-sec" id="btn-adm" style="display:none">⚙ Admin<span class="pill" id="adm-pend" hidden aria-label="usuários pendentes"></span></button>
-      <button class="btn-sec" id="btn-sair">Sair</button>
+  <header class="topbar">
+    <div class="brand-lockup" aria-label="VCN Systems">
+      <svg viewBox="0 0 780 365" aria-hidden="true"><use href="#vcn-mark"/></svg>
+      <span class="brand-name">VCN<b>SYSTEMS</b></span>
     </div>
+    <div class="hrow">
+      <button class="btn-sec" id="btn-adm" style="display:none" aria-label="Painel admin"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="M9.5 12l1.8 1.8 3.5-3.6"/></svg><span>Admin</span><span class="pill" id="adm-pend" hidden aria-label="usuários pendentes"></span></button>
+      <button class="btn-sec" id="btn-sair" aria-label="Sair"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg><span>Sair</span></button>
+    </div>
+  </header>
+
+  <div class="app-header">
+    <div class="app-title"><h2 id="t-dispositivo">Portão</h2><p id="u-nome"></p></div>
   </div>
 
   <div class="sbar" id="sbar" role="status" aria-live="polite">
@@ -464,9 +483,18 @@ button{font-family:inherit}
 
 <!-- ADMIN -->
 <div class="tela" id="t-admin">
+  <header class="topbar">
+    <div class="brand-lockup" aria-label="VCN Systems">
+      <svg viewBox="0 0 780 365" aria-hidden="true"><use href="#vcn-mark"/></svg>
+      <span class="brand-name">VCN<b>SYSTEMS</b></span>
+    </div>
+    <div class="hrow">
+      <button class="btn-sec" id="btn-back" aria-label="Voltar"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>Voltar</span></button>
+    </div>
+  </header>
+
   <div class="app-header">
-    <div><h2>Painel Admin</h2><p>Usuários e configurações</p></div>
-    <button class="btn-sec" id="btn-back">← Voltar</button>
+    <div class="app-title"><h2>Painel Admin</h2><p>Usuários e configurações</p></div>
   </div>
 
   <div class="admin-tabs">
@@ -1137,7 +1165,7 @@ async function carregarConfigSilencioso() {
   if (r.ok && Array.isArray(r.data) && r.data.length) {
     CONFIG = r.data[0];
     if (CONFIG.nome_dispositivo) {
-      const h2 = document.querySelector('#t-app .app-header h2');
+      const h2 = document.getElementById('t-dispositivo');
       if (h2) h2.textContent = CONFIG.nome_dispositivo;
     }
     return;
@@ -1235,7 +1263,7 @@ async function carregarUsuarios() {
     const acoes = u.id === USER_ID ? '<span class="u-self">Você</span>' : `
       <div class="uac">
         ${!u.aprovado ? `<button class="bap" onclick="aprovar('${id}')">Aprovar</button>` : ''}
-        ${u.aprovado && !u.admin ? `<button class="brm" onclick="remover('${id}')">Remover</button>` : ''}
+        ${u.aprovado && !u.admin ? `<button class="brm" onclick="remover('${id}')">Revogar</button>` : ''}
       </div>`;
     return `<div class="uc"><div class="avatar" aria-hidden="true">${inicial}</div><div class="uc-info"><div class="n">${nome} ${badge}</div><div class="e">${email}</div></div>${acoes}</div>`;
   }).join('');
