@@ -2,7 +2,10 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://hbdfxvscxnjbfntlhkko.supabase.co; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="VCN Control — controle de acesso ao portão. VCN Systems.">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,8 +15,9 @@
 <link rel="preload" href="./assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="./assets/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
 <meta name="application-name" content="VCN Control">
-<link rel="apple-touch-icon" href="./assets/icon-192.png">
-<link rel="icon" type="image/png" href="./assets/icon-192.png">
+<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png">
 <title>VCN Control · VCN Systems</title>
 <style>
 /* ==========================================================
@@ -148,7 +152,8 @@ button{font-family:inherit}
 .btn-sec{
   background:var(--bg3);border:1px solid var(--border2);
   color:var(--text2);border-radius:var(--r-sm);padding:10px 16px;min-height:var(--tap);
-  font-size:var(--fs-sm);font-weight:600;cursor:pointer;
+  font-size:var(--fs-sm);font-weight:600;cursor:pointer;white-space:nowrap;
+  display:inline-flex;align-items:center;justify-content:center;
   transition:border-color .2s,color .2s;
 }
 .btn-sec:hover{border-color:var(--brand-500);color:var(--text)}
@@ -238,7 +243,7 @@ button{font-family:inherit}
 .config-desc{font-size:.75rem;line-height:1.55;color:var(--text3)}
 .config-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .config-row label{font-size:var(--fs-sm);color:var(--text2);font-weight:600}
-.config-row input[type="number"],.config-row input[type="text"]{max-width:155px;padding:11px 12px;border-radius:var(--r-sm);font-size:.875rem}
+.config-row input[type="number"],.config-row input[type="text"]{max-width:155px;padding:11px 12px;border-radius:var(--r-sm);font-size:1rem}
 .switch{position:relative;width:48px;height:28px;flex-shrink:0}
 .switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1;min-height:0}
 .slider{position:absolute;cursor:pointer;inset:0;background:#141C30;border:1px solid var(--border2);border-radius:28px;transition:.2s}
@@ -271,10 +276,28 @@ button{font-family:inherit}
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .dbg{background:#05080F;border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;color:#3A4A6E;font-family:ui-monospace,monospace;max-height:80px;overflow-y:auto;word-break:break-all}
-.dbg:empty{display:none}
+.dbg:empty,.dbg:not(.on){display:none}
 
 /* Checkbox "manter conectado" */
 #lembrar-box{border-color:var(--brand-500)!important}
+
+/* Splash */
+.splash{align-items:center;justify-content:center;min-height:60dvh}
+.spinner{width:28px;height:28px;border-radius:50%;border:3px solid var(--border2);border-top-color:var(--vcn-cyan);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* Campo de senha com mostrar/ocultar */
+.pw-wrap{position:relative}
+.pw-wrap input{padding-right:56px}
+.pw-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:var(--tap);height:var(--tap);display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--text3);cursor:pointer;border-radius:10px}
+.pw-toggle:hover{color:var(--text)}
+.pw-toggle svg{width:20px;height:20px}
+/* Estado offline na barra de status */
+.sbar.offline{border-color:rgba(255,138,53,.35);color:#FFC59B}
+.sbar.offline .dot{background:var(--vcn-orange)}
+/* Contador de pendentes no botão Admin */
+.pill{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:9px;background:var(--vcn-orange);color:#1a0d00;font-size:.6875rem;font-weight:800}
+.pill[hidden]{display:none}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
@@ -301,10 +324,17 @@ button{font-family:inherit}
   </symbol>
 </svg>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- SPLASH (restaurando sessão) -->
+<div class="tela ativa splash" id="t-splash" aria-busy="true">
+  <svg class="brand-mark" viewBox="0 0 780 365" role="img" aria-label="VCN Systems"><use href="#vcn-mark"/></svg>
+  <div class="spinner" aria-hidden="true"></div>
+  <span class="sr-only">Carregando…</span>
+</div>
 
 <!-- LOGIN -->
-<div class="tela ativa" id="t-login">
+<div class="tela" id="t-login">
   <div class="logo">
     <svg class="brand-mark" viewBox="0 0 780 365" role="img" aria-label="VCN Systems"><use href="#vcn-mark"/></svg>
     <h1>VCN Control</h1>
@@ -313,18 +343,18 @@ button{font-family:inherit}
 
   <div class="card" id="c-login">
     <div class="card-label">Entrar na conta</div>
-    <div class="field"><label>E-mail</label><input type="email" id="l-email" placeholder="seu@email.com" autocomplete="email"></div>
-    <div class="field"><label>Senha</label><input type="password" id="l-senha" placeholder="••••••••" autocomplete="current-password"></div>
+    <div class="field"><label for="l-email">E-mail</label><input type="email" id="l-email" placeholder="seu@email.com" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" enterkeyhint="next"></div>
+    <div class="field"><label for="l-senha">Senha</label><div class="pw-wrap"><input type="password" id="l-senha" placeholder="••••••••" autocomplete="current-password" enterkeyhint="go"><button type="button" class="pw-toggle" aria-label="Mostrar senha" aria-pressed="false" data-pw="l-senha"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
     <div style="display:flex;align-items:center;gap:10px;padding:2px 0">
-      <div id="lembrar-box" role="checkbox" aria-checked="false" tabindex="0" onclick="toggleLembrar()" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();toggleLembrar();}" style="width:22px;height:22px;border-radius:6px;border:2px solid var(--brand-500);background:var(--bg3);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s">
+      <div id="lembrar-box" role="checkbox" aria-checked="false" aria-labelledby="lembrar-lbl" tabindex="0" onclick="toggleLembrar()" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();toggleLembrar();}" style="width:22px;height:22px;border-radius:6px;border:2px solid var(--brand-500);background:var(--bg3);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s">
         <svg id="lembrar-check" width="13" height="10" viewBox="0 0 13 10" fill="none" style="display:none">
           <polyline points="1,5 5,9 12,1" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
       <input type="checkbox" id="lembrar" style="display:none">
-      <label onclick="toggleLembrar()" style="font-size:14px;color:var(--text2);cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0;user-select:none">Manter conectado neste aparelho</label>
+      <label id="lembrar-lbl" onclick="toggleLembrar()" style="font-size:14px;color:var(--text2);cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0;user-select:none">Manter conectado neste aparelho</label>
     </div>
-    <div class="msg" id="m-login"></div>
+    <div class="msg" id="m-login" role="alert" aria-live="assertive"></div>
     <button class="btn" id="btn-entrar">Entrar</button>
     <div style="display:flex;justify-content:space-between;align-items:center">
       <button class="btn-link" id="ir-cad">Criar conta</button>
@@ -334,10 +364,10 @@ button{font-family:inherit}
 
   <div class="card" id="c-cad" style="display:none">
     <div class="card-label">Criar nova conta</div>
-    <div class="field"><label>Nome completo</label><input type="text" id="c-nome" placeholder="Seu nome" autocomplete="name"></div>
-    <div class="field"><label>E-mail</label><input type="email" id="c-email" placeholder="seu@email.com" autocomplete="email"></div>
-    <div class="field"><label>Senha</label><input type="password" id="c-senha" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
-    <div class="msg" id="m-cad"></div>
+    <div class="field"><label for="c-nome">Nome completo</label><input type="text" id="c-nome" placeholder="Seu nome" autocomplete="name" maxlength="80" enterkeyhint="next"></div>
+    <div class="field"><label for="c-email">E-mail</label><input type="email" id="c-email" placeholder="seu@email.com" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" enterkeyhint="next"></div>
+    <div class="field"><label for="c-senha">Senha</label><div class="pw-wrap"><input type="password" id="c-senha" placeholder="Mínimo 6 caracteres" autocomplete="new-password" minlength="6" enterkeyhint="go"><button type="button" class="pw-toggle" aria-label="Mostrar senha" aria-pressed="false" data-pw="c-senha"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+    <div class="msg" id="m-cad" role="alert" aria-live="assertive"></div>
     <button class="btn" id="btn-cad">Criar conta</button>
     <button class="btn-link" id="ir-login">Já tem conta? Entrar</button>
   </div>
@@ -366,12 +396,12 @@ button{font-family:inherit}
   <div class="app-header">
     <div><h2>Portão</h2><p id="u-nome"></p></div>
     <div class="hrow">
-      <button class="btn-sec" id="btn-adm" style="display:none">⚙ Admin</button>
+      <button class="btn-sec" id="btn-adm" style="display:none">⚙ Admin<span class="pill" id="adm-pend" hidden aria-label="usuários pendentes"></span></button>
       <button class="btn-sec" id="btn-sair">Sair</button>
     </div>
   </div>
 
-  <div class="sbar">
+  <div class="sbar" id="sbar" role="status" aria-live="polite">
     <div class="dot" id="s-dot"></div>
     <span id="s-txt">Verificando conexão...</span>
   </div>
@@ -440,8 +470,8 @@ button{font-family:inherit}
   </div>
 
   <div class="admin-tabs">
-    <button class="admin-tab ativa" id="tab-usuarios">Usuários</button>
-    <button class="admin-tab" id="tab-config">Configurações</button>
+    <button class="admin-tab ativa" id="tab-usuarios" aria-pressed="true">Usuários</button>
+    <button class="admin-tab" id="tab-config" aria-pressed="false">Configurações</button>
   </div>
 
   <div class="admin-panel ativa" id="painel-usuarios">
@@ -457,19 +487,19 @@ button{font-family:inherit}
         <div class="config-desc">Essas opções ficam disponíveis apenas para administrador. Usuários comuns não veem nem acessam esta tela.</div>
       </div>
       <div class="config-row">
-        <label>Nome do dispositivo</label>
-        <input id="cfg-nome" type="text" placeholder="Portão">
+        <label for="cfg-nome">Nome do dispositivo</label>
+        <input id="cfg-nome" type="text" maxlength="40" placeholder="Portão">
       </div>
       <div class="config-row">
-        <label>Tempo do pulso</label>
-        <input id="cfg-pulso" type="number" min="100" max="2000" step="50" placeholder="400">
+        <label for="cfg-pulso">Tempo do pulso (ms)</label>
+        <input id="cfg-pulso" type="number" inputmode="numeric" min="100" max="2000" step="50" placeholder="400">
       </div>
       <div class="config-row">
-        <label>Expiração do comando</label>
-        <input id="cfg-expira" type="number" min="5" max="60" step="5" placeholder="30">
+        <label for="cfg-expira">Expiração do comando (s)</label>
+        <input id="cfg-expira" type="number" inputmode="numeric" min="5" max="60" step="5" placeholder="30">
       </div>
       <div class="config-row">
-        <label>Modo manutenção</label>
+        <label for="cfg-manut">Modo manutenção</label>
         <label class="switch"><input id="cfg-manut" type="checkbox"><span class="slider"></span></label>
       </div>
       <div class="config-desc">Modo manutenção bloqueia comandos comuns no app. Para bloqueio físico total, o ESP32 também precisa ler essa configuração.</div>
@@ -597,6 +627,7 @@ async function enviarComandoAdmin(acao) {
 
 // Estado
 let TOKEN = null, USER_ID = null, PERFIL = null;
+let REFRESH = null, PERSIST = false, refreshTimer = null;
 let CONFIG = null;
 let logTimer = null;
 let statusTimer = null;
@@ -608,6 +639,9 @@ const STATUS_CHECK_MS = 10000;
 // Sem heartbeat real, isto evita mostrar online por causa de comando antigo.
 const ESP32_ONLINE_WINDOW_MS = 45000;
 const PERFIL_RETRY_MS = 2000;
+// Painel técnico da tela "aguardando" só aparece com ?debug=1 na URL.
+const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
+if (DEBUG) document.getElementById('dbg-ag').classList.add('on');
 
 // Utils
 function toast(m) {
@@ -626,6 +660,8 @@ function esc(valor) {
   }[c]));
 }
 function limparTimers() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = null;
   if (logTimer) clearInterval(logTimer);
   if (statusTimer) clearInterval(statusTimer);
   if (perfilTimer) clearTimeout(perfilTimer);
@@ -662,9 +698,37 @@ function fmt(iso) {
   });
 }
 
+// Renovação automática do token (Supabase expira o access_token em ~1h)
+function agendarRenovacao(expiresInSeg) {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  const seg = Math.max(30, (Number(expiresInSeg) || 3600) - 120);
+  refreshTimer = setTimeout(renovarToken, seg * 1000);
+}
+async function renovarToken() {
+  refreshTimer = null;
+  if (!REFRESH) return false;
+  const r = await refreshSession(REFRESH);
+  if (r.ok && r.data && r.data.access_token) {
+    TOKEN = r.data.access_token;
+    salvarSessao(TOKEN, USER_ID, r.data.refresh_token || REFRESH, PERSIST);
+    agendarRenovacao(r.data.expires_in);
+    return true;
+  }
+  if (r.status === 0) { agendarRenovacao(150); return false; } // sem rede: tenta de novo
+  return false;
+}
+function aplicarSessao(data, persistir) {
+  TOKEN = data.access_token;
+  USER_ID = data.user.id;
+  salvarSessao(TOKEN, USER_ID, data.refresh_token, persistir);
+  agendarRenovacao(data.expires_in);
+}
+
 // Persistência de sessão
 // Segurança: não salvamos senha. Para manter conectado, salvamos o refresh_token do Supabase.
 function salvarSessao(token, userId, refreshToken, persistir) {
+  REFRESH = refreshToken || REFRESH;
+  PERSIST = !!persistir;
   try {
     const storage = persistir ? localStorage : sessionStorage;
     const outro = persistir ? sessionStorage : localStorage;
@@ -798,9 +862,8 @@ document.getElementById('btn-entrar').onclick = async () => {
       localStorage.removeItem('vcn_keep_login');
     }
   } catch(e) {}
-  TOKEN = r.data.access_token;
-  USER_ID = r.data.user.id;
-  salvarSessao(TOKEN, USER_ID, r.data.refresh_token, lembrar);
+  aplicarSessao(r.data, lembrar);
+  document.getElementById('l-senha').value = '';
   await carregarPerfil();
 };
 
@@ -852,7 +915,7 @@ document.getElementById('btn-cad').onclick = async () => {
 async function sair() {
   const tokenAtual = TOKEN;
   limparTimers();
-  TOKEN = null; USER_ID = null; PERFIL = null;
+  TOKEN = null; USER_ID = null; PERFIL = null; REFRESH = null;
   limparSessao();
 
   if (tokenAtual) await signOut(tokenAtual);
@@ -870,12 +933,13 @@ document.getElementById('btn-sair').onclick    = sair;
 document.getElementById('btn-sair-ag').onclick = sair;
 
 // Carregar perfil
-async function carregarPerfil() {
+async function carregarPerfil(jaRenovou = false) {
   if (!TOKEN || !USER_ID) return;
 
   const r = await getPerfil(USER_ID, TOKEN);
-  const dbg = document.getElementById('dbg-ag');
+  const dbg = DEBUG ? document.getElementById('dbg-ag') : null;
 
+  if ((r.status === 401 || r.status === 403) && !jaRenovou && await renovarToken()) return carregarPerfil(true);
   if (r.status === 401 || r.status === 403) {
     setMsg('m-login', 'Sessão expirada. Entre novamente.', 'erro');
     await sair();
@@ -906,7 +970,7 @@ async function carregarPerfil() {
 
   // Aprovado — tela principal
   document.getElementById('u-nome').textContent = PERFIL.nome || PERFIL.email || 'Usuário';
-  document.getElementById('btn-adm').style.display = PERFIL.admin ? 'inline-block' : 'none';
+  document.getElementById('btn-adm').style.display = PERFIL.admin ? 'inline-flex' : 'none';
   document.getElementById('btn-abrir').disabled  = false;
   document.getElementById('btn-fechar').disabled = false;
   tela('t-app');
@@ -918,8 +982,9 @@ async function carregarPerfil() {
     secLog.style.display = 'block';
     secLog.style.visibility = 'visible';
     await carregarLogs();
+    contarPendentes();
     if (logTimer) clearInterval(logTimer);
-    logTimer = setInterval(carregarLogs, LOG_REFRESH_MS);
+    logTimer = setInterval(() => { if (!document.hidden) carregarLogs(); }, LOG_REFRESH_MS);
   } else {
     secLog.style.display = 'none';
     secLog.style.visibility = 'hidden';
@@ -929,7 +994,7 @@ async function carregarPerfil() {
 
   await verificarStatus();
   if (statusTimer) clearInterval(statusTimer);
-  statusTimer = setInterval(verificarStatus, STATUS_CHECK_MS);
+  statusTimer = setInterval(() => { if (!document.hidden) verificarStatus(); }, STATUS_CHECK_MS);
 }
 
 // Comandos
@@ -942,12 +1007,21 @@ async function enviarComando(acao) {
     toast('Sistema em manutenção. Tente mais tarde.');
     return;
   }
+  if (!navigator.onLine) {
+    toast('Sem internet — comando não enviado');
+    return;
+  }
   document.getElementById('btn-abrir').disabled  = true;
   document.getElementById('btn-fechar').disabled = true;
+  try { navigator.vibrate && navigator.vibrate(30); } catch(e) {}
 
-  const r = await insertComando(acao, USER_ID, TOKEN);
+  let r = await insertComando(acao, USER_ID, TOKEN);
+  if ((r.status === 401 || r.status === 403) && await renovarToken()) {
+    r = await insertComando(acao, USER_ID, TOKEN);
+  }
 
   setTimeout(() => {
+    if (!TOKEN) return; // saiu nesse meio-tempo
     document.getElementById('btn-abrir').disabled  = false;
     document.getElementById('btn-fechar').disabled = false;
   }, 3000);
@@ -1003,7 +1077,7 @@ async function carregarLogs() {
     '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=15&select=acao,criado_em,executado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
     null, TOKEN);
   if (!r.ok || !r.data || r.data.length === 0) {
-    lista.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;">Nenhum acesso ainda</div>';
+    lista.innerHTML = '<div class="empty">Nenhum acesso ainda</div>';
     return;
   }
   lista.innerHTML = r.data.map(l => {
@@ -1036,6 +1110,8 @@ function abrirPainelAdmin(nome) {
   config.classList.toggle('ativa', cfg);
   tabUsuarios.classList.toggle('ativa', !cfg);
   tabConfig.classList.toggle('ativa', cfg);
+  tabUsuarios.setAttribute('aria-pressed', String(!cfg));
+  tabConfig.setAttribute('aria-pressed', String(cfg));
 }
 
 document.getElementById('tab-usuarios').onclick = async () => {
@@ -1149,7 +1225,9 @@ async function carregarUsuarios() {
   if (!r.ok || !r.data || r.data.length === 0) {
     lista.innerHTML = '<div class="empty">Nenhum usuário</div>'; return;
   }
+  atualizarPendentes(r.data);
   lista.innerHTML = r.data.map(u => {
+    const inicial = esc(String(u.nome || u.email || '?').trim().charAt(0).toUpperCase() || '?');
     const badge = u.aprovado ? '<span class="u-ok" aria-label="Aprovado">✓</span>' : '<span class="u-wait" aria-label="Aguardando">⏳</span>';
     const id = esc(u.id);
     const nome = esc(u.nome || '(sem nome)');
@@ -1159,7 +1237,7 @@ async function carregarUsuarios() {
         ${!u.aprovado ? `<button class="bap" onclick="aprovar('${id}')">Aprovar</button>` : ''}
         ${u.aprovado && !u.admin ? `<button class="brm" onclick="remover('${id}')">Remover</button>` : ''}
       </div>`;
-    return `<div class="uc"><div class="uc-info"><div class="n">${nome} ${badge}</div><div class="e">${email}</div></div>${acoes}</div>`;
+    return `<div class="uc"><div class="avatar" aria-hidden="true">${inicial}</div><div class="uc-info"><div class="n">${nome} ${badge}</div><div class="e">${email}</div></div>${acoes}</div>`;
   }).join('');
 }
 
@@ -1169,6 +1247,14 @@ async function verificarStatus() {
 
   const dot = document.getElementById('s-dot');
   const txt = document.getElementById('s-txt');
+  const bar = document.getElementById('sbar');
+  if (!navigator.onLine) {
+    bar.classList.add('offline');
+    dot.className = 'dot';
+    txt.textContent = 'Sem internet — verifique sua conexão';
+    return;
+  }
+  bar.classList.remove('offline');
 
   const r = await supa('GET',
     '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
@@ -1208,13 +1294,61 @@ async function verificarStatus() {
 }
 
 async function aprovar(id) {
-  await updateUsuario(id, { aprovado: true }, TOKEN);
-  toast('Aprovado!'); await carregarUsuarios();
+  const r = await updateUsuario(id, { aprovado: true }, TOKEN);
+  toast(r.ok ? 'Usuário aprovado' : 'Falha ao aprovar usuário');
+  await carregarUsuarios();
 }
 async function remover(id) {
-  await updateUsuario(id, { aprovado: false }, TOKEN);
-  toast('Removido'); await carregarUsuarios();
+  if (!confirm('Revogar o acesso deste usuário? Ele voltará para "aguardando aprovação".')) return;
+  const r = await updateUsuario(id, { aprovado: false }, TOKEN);
+  toast(r.ok ? 'Acesso revogado' : 'Falha ao revogar acesso');
+  await carregarUsuarios();
 }
+function atualizarPendentes(lista) {
+  const el = document.getElementById('adm-pend');
+  if (!el) return;
+  const n = Array.isArray(lista) ? lista.filter(u => !u.aprovado).length : 0;
+  el.textContent = n;
+  el.hidden = n === 0;
+}
+async function contarPendentes() {
+  if (!PERFIL || PERFIL.admin !== true || !TOKEN) return;
+  const r = await supa('GET', '/rest/v1/usuarios?aprovado=eq.false&select=id', null, TOKEN);
+  if (r.ok) atualizarPendentes(r.data.map(() => ({ aprovado: false })));
+}
+
+// Enter envia formulários
+function aoEnter(ids, acao) {
+  ids.forEach(id => document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); acao(); }
+  }));
+}
+aoEnter(['l-email'], () => document.getElementById('l-senha').focus());
+aoEnter(['l-senha'], () => document.getElementById('btn-entrar').click());
+aoEnter(['c-nome'], () => document.getElementById('c-email').focus());
+aoEnter(['c-email'], () => document.getElementById('c-senha').focus());
+aoEnter(['c-senha'], () => document.getElementById('btn-cad').click());
+
+// Mostrar/ocultar senha
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.onclick = () => {
+    const input = document.getElementById(btn.dataset.pw);
+    const mostrar = input.type === 'password';
+    input.type = mostrar ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', String(mostrar));
+    btn.setAttribute('aria-label', mostrar ? 'Ocultar senha' : 'Mostrar senha');
+  };
+});
+
+// Conexão e visibilidade: atualiza ao voltar, economiza bateria em segundo plano
+window.addEventListener('online', () => { toast('Conexão restabelecida'); verificarStatus(); carregarLogs(); });
+window.addEventListener('offline', () => { toast('Sem internet'); verificarStatus(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !TOKEN || !PERFIL) return;
+  verificarStatus();
+  carregarLogs();
+  contarPendentes();
+});
 
 // Restaurar sessão ao carregar
 window.addEventListener('load', async () => {
@@ -1224,10 +1358,16 @@ window.addEventListener('load', async () => {
   if (s.refreshToken) {
     const r = await refreshSession(s.refreshToken);
     if (r.ok && r.data && r.data.access_token && r.data.user) {
-      TOKEN = r.data.access_token;
-      USER_ID = r.data.user.id;
-      salvarSessao(TOKEN, USER_ID, r.data.refresh_token || s.refreshToken, s.persistir);
+      if (!r.data.refresh_token) r.data.refresh_token = s.refreshToken;
+      aplicarSessao(r.data, s.persistir);
       await carregarPerfil();
+      return;
+    }
+    // Sem rede: mantém a sessão salva e tenta de novo quando voltar a conexão.
+    if (r.status === 0) {
+      setMsg('m-login', 'Sem conexão. Vamos reconectar automaticamente quando a internet voltar.', 'erro');
+      tela('t-login');
+      window.addEventListener('online', () => location.reload(), { once: true });
       return;
     }
     // Refresh falhou — sessão corrompida ou expirada, limpa tudo
@@ -1248,6 +1388,9 @@ window.addEventListener('load', async () => {
     }
     TOKEN = s.token;
     USER_ID = s.userId;
+    REFRESH = s.refreshToken || null;
+    PERSIST = false;
+    if (REFRESH) agendarRenovacao(600);
     await carregarPerfil();
     return;
   }
@@ -1293,7 +1436,7 @@ if ('serviceWorker' in navigator) {
       'z-index:9999','width:calc(100% - 40px)','max-width:370px',
       'box-shadow:0 8px 40px rgba(0,0,0,0.7),0 0 0 1px rgba(8,102,255,0.1)',
       'backdrop-filter:blur(16px)','-webkit-backdrop-filter:blur(16px)',
-      'font-family:-apple-system,BlinkMacSystemFont,sans-serif',
+      'font-family:var(--font)',
       'animation:slideUp .3s ease'
     ].join(';');
 
@@ -1331,12 +1474,12 @@ if ('serviceWorker' in navigator) {
 
     criarBanner(
       `<div style="display:flex;align-items:center;gap:12px">
-        <div style="width:44px;height:44px;border-radius:12px;background:#061426;border:1px solid rgba(16,168,255,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-          <img src="./assets/icon-192.png" style="width:32px;height:32px;border-radius:8px">
+        <div style="width:44px;height:44px;border-radius:12px;background:#061426;border:1px solid rgba(16,168,255,0.4);overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <img src="./assets/icon-192.png" alt="" style="width:40px;height:40px;border-radius:10px">
         </div>
         <div>
           <div style="font-size:15px;font-weight:700">Instalar VCN Control</div>
-          <div style="font-size:12px;color:#64748b;margin-top:2px">Adicionar à tela inicial</div>
+          <div style="font-size:12px;color:#8A9BB5;margin-top:2px">Adicionar à tela inicial</div>
         </div>
       </div>
       <div style="display:flex;gap:8px">
@@ -1360,12 +1503,12 @@ if ('serviceWorker' in navigator) {
     setTimeout(() => {
       criarBanner(
         `<div style="display:flex;align-items:center;gap:12px">
-          <div style="width:44px;height:44px;border-radius:12px;background:#061426;border:1px solid rgba(16,168,255,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <img src="./assets/icon-192.png" style="width:32px;height:32px;border-radius:8px">
+          <div style="width:44px;height:44px;border-radius:12px;background:#061426;border:1px solid rgba(16,168,255,0.4);overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <img src="./assets/icon-192.png" alt="" style="width:40px;height:40px;border-radius:10px">
           </div>
           <div>
             <div style="font-size:15px;font-weight:700">Instalar VCN Control</div>
-            <div style="font-size:12px;color:#64748b;margin-top:2px">Adicionar à tela inicial</div>
+            <div style="font-size:12px;color:#8A9BB5;margin-top:2px">Adicionar à tela inicial</div>
           </div>
         </div>
         <div style="font-size:13px;color:#94a3b8;line-height:1.6;background:rgba(255,255,255,0.04);border-radius:12px;padding:12px 14px">

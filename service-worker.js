@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vcn-control-v12';
+const CACHE_NAME = 'vcn-control-v13';
 
 const STATIC_FILES = [
   './',
@@ -6,6 +6,10 @@ const STATIC_FILES = [
   './manifest.json',
   './assets/icon-192.png',
   './assets/icon-512.png',
+  './assets/icon-maskable-192.png',
+  './assets/icon-maskable-512.png',
+  './assets/apple-touch-icon.png',
+  './assets/favicon.svg',
   './assets/fonts/inter.woff2',
   './assets/fonts/space-grotesk.woff2'
 ];
