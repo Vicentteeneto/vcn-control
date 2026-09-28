@@ -1,11 +1,13 @@
-const CACHE_NAME = 'vcn-control-v11';
+const CACHE_NAME = 'vcn-control-v12';
 
 const STATIC_FILES = [
   './',
   './index.html',
   './manifest.json',
   './assets/icon-192.png',
-  './assets/icon-512.png'
+  './assets/icon-512.png',
+  './assets/fonts/inter.woff2',
+  './assets/fonts/space-grotesk.woff2'
 ];
 
 self.addEventListener('install', event => {
