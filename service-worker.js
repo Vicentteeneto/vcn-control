@@ -1,9 +1,10 @@
-const CACHE_NAME = 'vcn-control-v18';
+const CACHE_NAME = 'vcn-control-v19';
 
 const STATIC_FILES = [
   './',
   './index.html',
   './manifest.json',
+  './assets/app.js',
   './assets/icon-192.png',
   './assets/icon-512.png',
   './assets/icon-maskable-192.png',
