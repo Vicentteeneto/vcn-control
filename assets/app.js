@@ -148,6 +148,14 @@ function tela(id) {
   document.querySelectorAll('.tela').forEach(t => t.classList.remove('ativa'));
   document.getElementById(id).classList.add('ativa');
 }
+// Data e hora completas para o histórico do admin: "29/09/2026 às 08:15"
+function fmtDataHora(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const data = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Belem' });
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Belem' });
+  return data + ' às ' + hora;
+}
 function fmt(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -528,7 +536,8 @@ function adicionarLogImediato(acao) {
     : '<span class="badge bf2">Fechou</span>';
   const item = document.createElement('div');
   item.className = 'li';
-  item.innerHTML = `<div><div class="q">${nome}</div><div class="w">agora</div></div>${badge}`;
+  const agoraIso = new Date().toISOString();
+  item.innerHTML = `<div><div class="q">${nome}</div><div class="w">${esc(fmtDataHora(agoraIso))} · agora</div></div>${badge}`;
   lista.insertBefore(item, lista.firstChild);
   // Remove entradas antigas se passar de 15
   while (lista.children.length > 15) lista.removeChild(lista.lastChild);
@@ -560,7 +569,8 @@ async function carregarLogs() {
     const badge = l.acao === 'abrir'
       ? '<span class="badge ba2">Abriu</span>'
       : '<span class="badge bf2">Fechou</span>';
-    return `<div class="li"><div><div class="q">${esc(quem)}</div><div class="w">${esc(fmt(l.executado_em || l.criado_em))}</div></div>${badge}</div>`;
+    const quando = l.executado_em || l.criado_em;
+    return `<div class="li"><div><div class="q">${esc(quem)}</div><div class="w"><time datetime="${esc(quando)}">${esc(fmtDataHora(quando))}</time>${(Date.now() - new Date(quando)) < 3600000 ? ' · ' + esc(fmt(quando)) : ''}</div></div>${badge}</div>`;
   }).join('');
 }
 
@@ -649,7 +659,7 @@ async function atualizarResumoUltimaAcaoAdmin() {
     elTipo.textContent = '—';
     return;
   }
-  elHora.textContent = fmt(r.data[0].executado_em || r.data[0].criado_em);
+  elHora.textContent = fmtDataHora(r.data[0].executado_em || r.data[0].criado_em);
   elTipo.textContent = r.data[0].acao || '—';
 }
 
