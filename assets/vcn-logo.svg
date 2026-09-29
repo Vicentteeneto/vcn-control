@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="150 358 780 365" role="img" aria-label="VCN Systems">
+<defs>
+ <linearGradient id="gV" x1="155" y1="378" x2="400" y2="700" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#18E1DF"/><stop offset=".45" stop-color="#10A8FF"/><stop offset=".8" stop-color="#0866FF"/><stop offset="1" stop-color="#173ED5"/></linearGradient>
+ <linearGradient id="gV2" x1="330" y1="718" x2="460" y2="540" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0866FF"/><stop offset="1" stop-color="#10A8FF"/></linearGradient>
+ <linearGradient id="gC1" x1="380" y1="560" x2="690" y2="400" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#10A8FF"/><stop offset="1" stop-color="#18E1DF"/></linearGradient>
+ <linearGradient id="gC2" x1="440" y1="660" x2="690" y2="660" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#18E1DF"/><stop offset=".5" stop-color="#10A8FF"/><stop offset="1" stop-color="#0866FF"/></linearGradient>
+ <linearGradient id="gN" x1="640" y1="470" x2="925" y2="718" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#10A8FF"/><stop offset=".6" stop-color="#0866FF"/><stop offset="1" stop-color="#173ED5"/></linearGradient>
+ <linearGradient id="gN2" x1="870" y1="362" x2="870" y2="640" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#10A8FF"/><stop offset="1" stop-color="#0866FF"/></linearGradient>
+</defs>
+<path fill="url(#gV)" d="M155 378H275L398 590 330 690Z"/>
+<path fill="url(#gV2)" d="M330 690 455 532Q452 572 475 600L385 718H345Z"/>
+<path fill="url(#gC1)" d="M365 508Q430 372 560 368Q650 368 695 437L630 478Q600 445 560 445Q500 445 468 490L403 575Z"/>
+<path fill="url(#gC2)" d="M437 672 483 608Q515 637 557 637Q603 637 630 598L692 648Q640 718 557 718Q480 718 437 672Z"/>
+<path fill="url(#gN2)" d="M815 430 925 362V700L815 580Z"/>
+<path fill="url(#gN)" d="M633 493 697 453 925 700V718H828L700 575V633L633 580Z"/>
+</svg>
