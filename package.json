@@ -1,0 +1,12 @@
+{
+  "name": "vcn-control-revisao-local",
+  "version": "0.21.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "test:sql": "python3 tests/run_sql_tests.py",
+    "pretest": "node scripts/build.cjs",
+    "test:all": "npm test && npm run test:sql"
+  }
+}

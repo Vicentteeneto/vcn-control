@@ -321,6 +321,9 @@ button{font-family:inherit}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }
+.dot.warn{background:var(--vcn-orange,#FF8A35);box-shadow:0 0 10px rgba(255,138,53,.18)}
+.pedido-acoes{display:flex;gap:10px;flex-wrap:wrap}.pedido-acoes:has(button:not([hidden])){margin-top:-6px}
+.pedido-acoes button[hidden]{display:none}.sbar{align-items:flex-start}.sbar .dot{flex-shrink:0;margin-top:5px}
 </style>
 </head>
 <body>
@@ -439,6 +442,11 @@ button{font-family:inherit}
     <span id="s-txt">Verificando conexão...</span>
   </div>
 
+  <div class="pedido-acoes" aria-label="Acompanhar pedido">
+    <button class="btn-mini" id="btn-verificar-pedido" hidden>Verificar pedido</button>
+    <button class="btn-mini" id="btn-repetir-pedido" hidden>Tentar o mesmo pedido</button>
+  </div>
+
   <div class="botoes">
     <button class="bp ba" id="btn-abrir" disabled>
       <!-- Portão aberto -->
@@ -490,7 +498,7 @@ button{font-family:inherit}
   </div>
 
   <div id="sec-log" style="display:none">
-    <div class="sec-title">Últimos acessos</div>
+    <div class="sec-title">Pedidos confirmados</div>
     <div class="log-lista" id="log-lista"></div>
   </div>
 </div>
@@ -582,6 +590,9 @@ button{font-family:inherit}
   </div>
 </div>
 
-<script src="./assets/app.js"></script>
+<!-- VCN_BUILD_SCRIPTS -->
+<script src="./assets/control.0349d83eb2d8.js"></script>
+<script src="./assets/app.3d34b9f7986c.js"></script>
+<!-- VCN_BUILD_SCRIPTS_END -->
 </body>
 </html>

@@ -4,35 +4,26 @@ const URL = 'https://hbdfxvscxnjbfntlhkko.supabase.co';
 const KEY = 'sb_publishable_UNSze5dx3h5Vxf9Y8U3FYA_YJnkbl7T';
 
 // Helper HTTP direto — sem biblioteca
-async function supa(method, path, body, token) {
-  const headers = {
-    'apikey': KEY,
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  };
-  headers['Authorization'] = 'Bearer ' + (token || KEY);
-
+async function supa(method, path, body, token, options = {}) {
+  const headers = { apikey: KEY, Accept: 'application/json', ...options.headers };
+  if (body !== null && body !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const controller = new AbortController();
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 12000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const r = await fetch(URL + path, {
-      method,
-      headers,
-      cache: 'no-store',
-      body: body ? JSON.stringify(body) : undefined
+      method, headers, cache: 'no-store', signal: controller.signal,
+      body: body !== null && body !== undefined ? JSON.stringify(body) : undefined
     });
     const txt = await r.text();
     let data = null;
-    if (txt) {
-      try { data = JSON.parse(txt); }
-      catch { data = txt; }
-    }
+    if (txt) { try { data = JSON.parse(txt); } catch (_) { data = txt; } }
     return { ok: r.ok, status: r.status, data };
   } catch (e) {
-    return {
-      ok: false,
-      status: 0,
-      data: { message: e && e.message ? e.message : 'Falha de conexão' }
-    };
-  }
+    return { ok: false, status: 0, timeout: e && e.name === 'AbortError',
+      data: { message: e && e.name === 'AbortError' ? 'Tempo de resposta esgotado' : 'Falha de conexão' } };
+  } finally { clearTimeout(timeout); }
 }
 
 // Auth helpers
@@ -96,16 +87,15 @@ async function enviarComandoAdmin(acao) {
 // Estado
 let TOKEN = null, USER_ID = null, PERFIL = null;
 let REFRESH = null, PERSIST = false, refreshTimer = null;
-let CONFIG = null;
+let CONFIG = null, CONFIG_OK = false;
+let renovarEmAndamento = null;
+let ultimoHistoricoHtml = "";
 let logTimer = null;
 let statusTimer = null;
 let perfilTimer = null;
 
 const LOG_REFRESH_MS = 2000;
 const STATUS_CHECK_MS = 10000;
-// Janela para considerar retorno recente do ESP32.
-// Sem heartbeat real, isto evita mostrar online por causa de comando antigo.
-const ESP32_ONLINE_WINDOW_MS = 45000;
 const PERFIL_RETRY_MS = 2000;
 // Painel técnico da tela "aguardando" só aparece com ?debug=1 na URL.
 const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
@@ -181,18 +171,25 @@ function agendarRenovacao(expiresInSeg) {
   refreshTimer = setTimeout(renovarToken, seg * 1000);
 }
 async function renovarToken() {
-  refreshTimer = null;
+  if (renovarEmAndamento) return renovarEmAndamento;
   if (!REFRESH) return false;
-  const r = await refreshSession(REFRESH);
-  if (r.ok && r.data && r.data.access_token) {
-    TOKEN = r.data.access_token;
-    salvarSessao(TOKEN, USER_ID, r.data.refresh_token || REFRESH, PERSIST);
-    agendarRenovacao(r.data.expires_in);
-    return true;
-  }
-  if (r.status === 0) { agendarRenovacao(150); return false; } // sem rede: tenta de novo
-  return false;
+  const refreshAtual = REFRESH, usuarioAtual = USER_ID;
+  const promise = (async () => {
+    const r = await refreshSession(refreshAtual);
+    if (USER_ID !== usuarioAtual || REFRESH !== refreshAtual) return false;
+    if (r.ok && r.data && r.data.access_token) {
+      TOKEN = r.data.access_token;
+      salvarSessao(TOKEN, USER_ID, r.data.refresh_token || REFRESH, PERSIST);
+      agendarRenovacao(r.data.expires_in);
+      return true;
+    }
+    if (r.status === 0 || r.status >= 500 || r.status === 429) agendarRenovacao(150);
+    return false;
+  })();
+  renovarEmAndamento = promise;
+  try { return await promise; } finally { if (renovarEmAndamento === promise) renovarEmAndamento = null; }
 }
+
 function aplicarSessao(data, persistir) {
   TOKEN = data.access_token;
   USER_ID = data.user.id;
@@ -354,7 +351,7 @@ document.getElementById('btn-cad').onclick = async () => {
   const r = await signUp(email, senha, nome);
   btn.disabled = false; btn.textContent = 'Criar conta';
   if (!r.ok) {
-    console.error('Erro ao criar conta:', r.status, r.data);
+    console.error('Não foi possível criar a conta:', r.status);
 
     let msg = 'Erro ao criar conta';
 
@@ -379,7 +376,7 @@ document.getElementById('btn-cad').onclick = async () => {
     } else if (r.status === 0) {
       msg = 'Falha de conexão. Verifique a internet e tente novamente.';
     } else {
-      msg = msg + ' (código ' + r.status + ')';
+      msg = 'Não foi possível criar a conta. Confira os dados e tente novamente.';
     }
 
     setMsg('m-cad', msg, 'erro');
@@ -391,10 +388,12 @@ document.getElementById('btn-cad').onclick = async () => {
 async function sair() {
   const tokenAtual = TOKEN;
   limparTimers();
+  pedidos.stop();
+  CONFIG = null; CONFIG_OK = false; ultimoHistoricoHtml = "";
   TOKEN = null; USER_ID = null; PERFIL = null; REFRESH = null;
   limparSessao();
 
-  if (tokenAtual) await signOut(tokenAtual);
+  if (tokenAtual) signOut(tokenAtual).catch(() => {});
 
   document.getElementById('btn-adm').style.display = 'none';
   document.getElementById('btn-abrir').disabled = true;
@@ -412,7 +411,9 @@ document.getElementById('btn-sair-ag').onclick = sair;
 async function carregarPerfil(jaRenovou = false) {
   if (!TOKEN || !USER_ID) return;
 
-  const r = await getPerfil(USER_ID, TOKEN);
+  const usuarioConsultado = USER_ID;
+  const r = await getPerfil(usuarioConsultado, TOKEN);
+  if (!TOKEN || USER_ID !== usuarioConsultado) return;
   const dbg = DEBUG ? document.getElementById('dbg-ag') : null;
 
   if ((r.status === 401 || r.status === 403) && !jaRenovou && await renovarToken()) return carregarPerfil(true);
@@ -447,10 +448,12 @@ async function carregarPerfil(jaRenovou = false) {
   // Aprovado — tela principal
   document.getElementById('u-nome').textContent = PERFIL.nome || PERFIL.email || 'Usuário';
   document.getElementById('btn-adm').style.display = PERFIL.admin ? 'inline-flex' : 'none';
-  document.getElementById('btn-abrir').disabled  = false;
-  document.getElementById('btn-fechar').disabled = false;
+  CONFIG_OK = false;
+  atualizarBotoesComando();
   tela('t-app');
   await carregarConfigSilencioso();
+  if (!TOKEN || USER_ID !== usuarioConsultado) return;
+  await pedidos.restore(USER_ID);
 
   // Log só para admin
   const secLog = document.getElementById('sec-log');
@@ -473,77 +476,77 @@ async function carregarPerfil(jaRenovou = false) {
   statusTimer = setInterval(() => { if (!document.hidden) verificarStatus(); }, STATUS_CHECK_MS);
 }
 
-// Comandos
+// A interface acompanha a linha criada pelo próprio pedido, sem inferir posição física.
+async function requisicaoAutenticada(method, path, body, user, options) {
+  if (!TOKEN || USER_ID !== user) return { ok: false, status: 401, data: null };
+  let r = await supa(method, path, body, TOKEN, options);
+  if (r.status === 401 && USER_ID === user && await renovarToken()) {
+    if (USER_ID !== user) return { ok: false, status: 401, data: null };
+    r = await supa(method, path, body, TOKEN, options);
+  }
+  return r;
+}
+let armazenamentoPedidos;
+try { armazenamentoPedidos = sessionStorage; } catch (_) {}
+const pedidos = VCNControl.create({
+  storage: armazenamentoPedidos,
+  request: requisicaoAutenticada,
+  onChange: () => { atualizarBotoesComando(); mostrarEstadoPedido(); },
+  onSettled: () => { carregarLogs(); }
+});
+
+function atualizarBotoesComando() {
+  const manutencaoBloqueia = !!(CONFIG && CONFIG.modo_manutencao && (!PERFIL || PERFIL.admin !== true));
+  const desabilitado = !TOKEN || !PERFIL || PERFIL.aprovado !== true || !navigator.onLine ||
+    !CONFIG_OK || manutencaoBloqueia || pedidos.snapshot().busy;
+  document.getElementById('btn-abrir').disabled = desabilitado;
+  document.getElementById('btn-fechar').disabled = desabilitado;
+}
+function definirStatus(texto, classe = 'warn') {
+  document.getElementById('s-dot').className = 'dot ' + classe;
+  document.getElementById('s-txt').textContent = texto;
+}
+function mostrarEstadoPedido() {
+  const p = pedidos.snapshot();
+  const verificar = document.getElementById('btn-verificar-pedido');
+  const repetir = document.getElementById('btn-repetir-pedido');
+  if (verificar) verificar.hidden = !p.busy;
+  if (repetir) repetir.hidden = p.phase !== 'not_found';
+  const acao = p.action === 'fechar' ? 'fechar' : 'abrir';
+  const mensagens = {
+    sending: 'Enviando pedido de ' + acao + '…',
+    waiting: 'Pedido enviado — aguardando confirmação.',
+    verifying: 'Verificando o pedido. Não é necessário enviar novamente.',
+    unavailable: 'Sem resposta do pedido. Verifique antes de tentar novamente.',
+    not_found: 'Pedido não localizado. Você pode verificar ou tentar o mesmo pedido.',
+    confirmed: 'Último pedido confirmado. A posição do portão não é verificada.',
+    expired: 'Pedido expirado sem confirmação. Confira o portão antes de novo envio.',
+    failed: p.reason === 'permission' ? 'Pedido recusado: confira sua sessão ou permissão.' : 'Pedido não confirmado. Confira o portão antes de novo envio.'
+  };
+  if (!mensagens[p.phase]) return false;
+  definirStatus(mensagens[p.phase], p.phase === 'confirmed' ? 'on' : 'warn');
+  return true;
+}
 async function enviarComando(acao) {
-  if (!['abrir', 'fechar'].includes(acao)) {
-    toast('Ação inválida bloqueada por segurança.');
-    return;
-  }
-  if (CONFIG && CONFIG.modo_manutencao && (!PERFIL || PERFIL.admin !== true)) {
-    toast('Sistema em manutenção. Tente mais tarde.');
-    return;
-  }
-  if (!navigator.onLine) {
-    toast('Sem internet — comando não enviado');
-    return;
-  }
-  document.getElementById('btn-abrir').disabled  = true;
-  document.getElementById('btn-fechar').disabled = true;
-  try { navigator.vibrate && navigator.vibrate(30); } catch(e) {}
-
-  let r = await insertComando(acao, USER_ID, TOKEN);
-  if ((r.status === 401 || r.status === 403) && await renovarToken()) {
-    r = await insertComando(acao, USER_ID, TOKEN);
-  }
-
-  setTimeout(() => {
-    if (!TOKEN) return; // saiu nesse meio-tempo
-    document.getElementById('btn-abrir').disabled  = false;
-    document.getElementById('btn-fechar').disabled = false;
-  }, 3000);
-
-  if (!r.ok) {
-    let msg = 'Falha ao enviar comando';
-    if (r.status === 401 || r.status === 403) msg = (CONFIG && CONFIG.modo_manutencao) ? 'Portão em manutenção' : 'Sem permissão para enviar comando';
-    else if (r.status === 0) msg = 'Falha de conexão';
-    else if (r.data && (r.data.message || r.data.msg)) msg = r.data.message || r.data.msg;
-    toast(msg);
-    return;
-  }
-
-  // Não marque como online aqui.
-  // O app só pode mostrar retorno quando o ESP32 realmente marcar o comando como executado no banco.
-  toast(acao === 'abrir' ? '🔓 Comando de abrir enviado' : '🔒 Comando de fechar enviado');
-  if (PERFIL && PERFIL.admin === true) {
-    document.getElementById('s-dot').className = 'dot';
-    document.getElementById('s-txt').textContent = 'Comando enviado — aguardando confirmação do ESP32';
-  }
-
-  // O histórico só deve atualizar quando o ESP32 confirmar no banco.
-  setTimeout(carregarLogs, 2000);
-  setTimeout(verificarStatus, 2000);
-  setTimeout(carregarLogs, 5000);
-  setTimeout(verificarStatus, 5000);
+  if (!['abrir', 'fechar'].includes(acao)) return toast('Pedido inválido');
+  if (!TOKEN || !PERFIL || PERFIL.aprovado !== true) return toast('Entre em uma conta com acesso aprovado');
+  if (pedidos.snapshot().busy) return toast('Aguarde ou verifique o pedido em andamento');
+  if (!navigator.onLine) return toast('Sem internet — pedido não enviado');
+  if (!CONFIG_OK) return toast('Aguarde a verificação das configurações');
+  if (CONFIG.modo_manutencao && PERFIL.admin !== true) return toast('Sistema em manutenção');
+  try { await pedidos.send(acao, USER_ID); }
+  catch (_) { toast('Não foi possível preparar o pedido. Atualize a página.'); }
+  atualizarBotoesComando();
 }
-
-function adicionarLogImediato(acao) {
-  if (!PERFIL || !PERFIL.admin) return;
-  const lista = document.getElementById('log-lista');
-  if (!lista) return;
-  const nome = esc(PERFIL.nome || PERFIL.email || 'Você');
-  const badge = acao === 'abrir'
-    ? '<span class="badge ba2">Abriu</span>'
-    : '<span class="badge bf2">Fechou</span>';
-  const item = document.createElement('div');
-  item.className = 'li';
-  const agoraIso = new Date().toISOString();
-  item.innerHTML = `<div><div class="q">${nome}</div><div class="w">${esc(fmtDataHora(agoraIso))} · agora</div></div>${badge}`;
-  lista.insertBefore(item, lista.firstChild);
-  // Remove entradas antigas se passar de 15
-  while (lista.children.length > 15) lista.removeChild(lista.lastChild);
-}
-document.getElementById('btn-abrir').onclick  = () => enviarComando('abrir');
+document.getElementById('btn-abrir').onclick = () => enviarComando('abrir');
 document.getElementById('btn-fechar').onclick = () => enviarComando('fechar');
+const btnVerificarPedido = document.getElementById('btn-verificar-pedido');
+const btnRepetirPedido = document.getElementById('btn-repetir-pedido');
+if (btnVerificarPedido) btnVerificarPedido.onclick = () => pedidos.refresh();
+if (btnRepetirPedido) btnRepetirPedido.onclick = async () => {
+  if (!CONFIG_OK || !navigator.onLine || !PERFIL || (CONFIG.modo_manutencao && PERFIL.admin !== true)) return toast('Verifique a conexão e as configurações');
+  await pedidos.retry();
+};
 
 // Logs
 async function carregarLogs() {
@@ -555,8 +558,14 @@ async function carregarLogs() {
   const r = await supa('GET',
     '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=15&select=acao,criado_em,executado_em,usuario_id,usuarios!comandos_usuario_id_fkey(nome,email)',
     null, TOKEN);
-  if (!r.ok || !r.data || r.data.length === 0) {
-    lista.innerHTML = '<div class="empty">Nenhum acesso ainda</div>';
+  if (!TOKEN || !PERFIL || PERFIL.admin !== true) return;
+  if (!r.ok || !Array.isArray(r.data)) {
+    lista.innerHTML = '<div class="warn-box">Não foi possível atualizar o histórico.' + (ultimoHistoricoHtml ? ' Exibindo a última consulta.' : ' Tente novamente.') + '</div>' + ultimoHistoricoHtml;
+    return;
+  }
+  if (!r.data.length) {
+    ultimoHistoricoHtml = '';
+    lista.innerHTML = '<div class="empty">Nenhum pedido confirmado ainda</div>';
     return;
   }
   lista.innerHTML = r.data.map(l => {
@@ -567,11 +576,12 @@ async function carregarLogs() {
       quem = 'ID: ' + String(l.usuario_id).substring(0,8) + '...';
     }
     const badge = l.acao === 'abrir'
-      ? '<span class="badge ba2">Abriu</span>'
-      : '<span class="badge bf2">Fechou</span>';
+      ? '<span class="badge ba2">Pedido abrir</span>'
+      : '<span class="badge bf2">Pedido fechar</span>';
     const quando = l.executado_em || l.criado_em;
     return `<div class="li"><div><div class="q">${esc(quem)}</div><div class="w"><time datetime="${esc(quando)}">${esc(fmtDataHora(quando))}</time>${(Date.now() - new Date(quando)) < 3600000 ? ' · ' + esc(fmt(quando)) : ''}</div></div>${badge}</div>`;
   }).join('');
+  ultimoHistoricoHtml = lista.innerHTML;
 }
 
 // Admin
@@ -612,17 +622,15 @@ document.getElementById('btn-back').onclick = () => tela('t-app');
 
 
 async function carregarConfigSilencioso() {
-  if (!TOKEN) return;
-  const r = await getConfig(TOKEN);
-  if (r.ok && Array.isArray(r.data) && r.data.length) {
-    CONFIG = r.data[0];
-    if (CONFIG.nome_dispositivo) {
-      const h2 = document.getElementById('t-dispositivo');
-      if (h2) h2.textContent = CONFIG.nome_dispositivo;
-    }
-    return;
-  }
-  CONFIG = null;
+  if (!TOKEN || !USER_ID) { CONFIG_OK = false; return false; }
+  const user = USER_ID;
+  const r = await requisicaoAutenticada('GET', '/rest/v1/configuracoes?id=eq.portao_principal&select=*', null, user);
+  if (!TOKEN || USER_ID !== user) return false;
+  CONFIG_OK = !!(r.ok && Array.isArray(r.data) && r.data.length && VCNControl.validConfig(r.data[0]));
+  CONFIG = CONFIG_OK ? r.data[0] : null;
+  if (CONFIG && CONFIG.nome_dispositivo) document.getElementById('t-dispositivo').textContent = CONFIG.nome_dispositivo;
+  atualizarBotoesComando();
+  return CONFIG_OK;
 }
 
 async function carregarConfigAdmin() {
@@ -640,6 +648,9 @@ async function carregarConfigAdmin() {
   }
 
   CONFIG = r.data[0];
+  CONFIG_OK = VCNControl.validConfig(CONFIG);
+  if (!CONFIG_OK) toast('Revise os valores da configuração antes de acionar o portão');
+  atualizarBotoesComando();
   document.getElementById('cfg-nome').value = CONFIG.nome_dispositivo || 'Portão';
   document.getElementById('cfg-pulso').value = CONFIG.tempo_pulso_ms || 400;
   document.getElementById('cfg-expira').value = CONFIG.expira_comando_seg || 30;
@@ -667,8 +678,11 @@ document.getElementById('btn-recarregar-config').onclick = carregarConfigAdmin;
 document.getElementById('btn-salvar-config').onclick = async () => {
   if (!PERFIL || PERFIL.admin !== true) return toast('Acesso restrito');
   const nome = document.getElementById('cfg-nome').value.trim() || 'Portão';
-  const pulso = Math.max(100, Math.min(2000, Number(document.getElementById('cfg-pulso').value || 400)));
-  const expira = Math.max(5, Math.min(60, Number(document.getElementById('cfg-expira').value || 30)));
+  const pulso = Number(document.getElementById('cfg-pulso').value);
+  const expira = Number(document.getElementById('cfg-expira').value);
+  if (!Number.isInteger(pulso) || pulso < 100 || pulso > 2000) return toast('Informe um pulso inteiro entre 100 e 2000 ms');
+  if (!Number.isInteger(expira) || expira < 5 || expira > 60) return toast('Informe um prazo inteiro entre 5 e 60 segundos');
+  if (nome.length > 40) return toast('Use até 40 caracteres no nome');
   const manut = document.getElementById('cfg-manut').checked;
   const r = await salvarConfig({
     nome_dispositivo: nome,
@@ -678,7 +692,7 @@ document.getElementById('btn-salvar-config').onclick = async () => {
     atualizado_em: new Date().toISOString(),
     atualizado_por: USER_ID
   }, TOKEN);
-  if (!r.ok) return toast('Erro ao salvar: ' + JSON.stringify(r.data));
+  if (!r.ok) return toast('Não foi possível salvar. Confira sua permissão e tente novamente.');
   toast('Configurações salvas');
   await carregarConfigAdmin();
   await carregarConfigSilencioso();
@@ -747,82 +761,36 @@ async function carregarUsuarios() {
   lista.innerHTML = html;
 }
 
-// ---- STATUS ESP32 ----
+// Sem heartbeat do firmware, a interface não afirma presença atual do ESP32.
 async function verificarStatus() {
   if (!TOKEN) return;
-
-  const dot = document.getElementById('s-dot');
-  const txt = document.getElementById('s-txt');
+  atualizarBotoesComando();
   const bar = document.getElementById('sbar');
   if (!navigator.onLine) {
     bar.classList.add('offline');
-    dot.className = 'dot';
-    txt.textContent = 'Sem internet — verifique sua conexão';
+    definirStatus('Sem internet. Nenhum novo pedido pode ser enviado.');
     return;
   }
-  bar.classList.remove('offline');
-
-  await carregarConfigSilencioso();
-  const manut = !!(CONFIG && CONFIG.modo_manutencao);
-  bar.classList.toggle('offline', manut);
-
-  // Usuário comum: não consulta nem exibe o histórico de comandos (só para admin).
-  if (!PERFIL || PERFIL.admin !== true) {
-    document.getElementById('btn-abrir').disabled  = manut;
-    document.getElementById('btn-fechar').disabled = manut;
-    dot.className = manut ? 'dot' : 'dot on';
-    txt.textContent = manut ? 'Portão em manutenção — comandos bloqueados' : 'Conectado — pronto para uso';
+  const ok = await carregarConfigSilencioso();
+  if (!TOKEN) return;
+  bar.classList.toggle('offline', !ok || !!(CONFIG && CONFIG.modo_manutencao));
+  if (!ok) { definirStatus('Não foi possível verificar as configurações. Tente novamente.'); return; }
+  if (mostrarEstadoPedido()) return;
+  if (CONFIG.modo_manutencao) {
+    definirStatus(PERFIL && PERFIL.admin === true ? 'Manutenção ativa — acionamento restrito ao administrador.' : 'Em manutenção — pedidos bloqueados.');
     return;
   }
-  if (manut) {
-    dot.className = 'dot';
-    txt.textContent = 'Modo manutenção ativo — só administradores podem acionar';
-    return;
-  }
-
-  const r = await supa('GET',
-    '/rest/v1/comandos?executado=eq.true&acao=in.(abrir,fechar)&order=executado_em.desc.nullslast&limit=1&select=executado_em,criado_em,acao',
-    null, TOKEN);
-
-  if (!r.ok) {
-    dot.className = 'dot';
-    txt.textContent = 'Não foi possível verificar a última ação confirmada';
-    return;
-  }
-
-  if (!r.data || r.data.length === 0) {
-    dot.className = 'dot';
-    txt.textContent = 'Nenhuma ação confirmada ainda';
-    return;
-  }
-
-  const retornoIso = r.data[0].executado_em || r.data[0].criado_em;
-
-  if (!r.data[0].executado_em) {
-    dot.className = 'dot';
-    txt.textContent = 'Último comando confirmado sem horário — verifique trigger/ESP32';
-    return;
-  }
-
-  const ultimo = new Date(retornoIso);
-  const idade = Date.now() - ultimo.getTime();
-
-  if (idade <= ESP32_ONLINE_WINDOW_MS) {
-    dot.className = 'dot on';
-    txt.textContent = 'Último comando confirmado — ' + fmt(retornoIso);
-    return;
-  }
-
-  dot.className = 'dot';
-  txt.textContent = 'Último comando confirmado — ' + fmt(retornoIso);
+  definirStatus('Servidor disponível. ESP32 sem verificação em tempo real.');
 }
 
 async function aprovar(id) {
+  if (!PERFIL || PERFIL.admin !== true || !VCNControl.validUuid(id)) return toast('Acesso restrito');
   const r = await updateUsuario(id, { aprovado: true }, TOKEN);
   toast(r.ok ? 'Usuário aprovado' : 'Falha ao aprovar usuário');
   await carregarUsuarios();
 }
 async function remover(id) {
+  if (!PERFIL || PERFIL.admin !== true || !VCNControl.validUuid(id)) return toast('Acesso restrito');
   if (!confirm('Revogar o acesso deste usuário? Ele voltará para "aguardando aprovação".')) return;
   const r = await updateUsuario(id, { aprovado: false }, TOKEN);
   toast(r.ok ? 'Acesso revogado' : 'Falha ao revogar acesso');
@@ -870,6 +838,7 @@ window.addEventListener('offline', () => { toast('Sem internet'); verificarStatu
 document.addEventListener('visibilitychange', () => {
   if (document.hidden || !TOKEN || !PERFIL) return;
   verificarStatus();
+  pedidos.refresh();
   carregarLogs();
   contarPendentes();
 });
