@@ -8,9 +8,9 @@ const core = require('../assets/control.js');
 function section(a,b) { const start=source.indexOf(a), end=source.indexOf(b,start+a.length); assert.ok(start>=0 && end>start); return source.slice(start,end); }
 function ui() {
   const nodes=new Map();
-  const document={getElementById(id){if(!nodes.has(id))nodes.set(id,{disabled:false,hidden:false,textContent:'',innerHTML:'',className:'',classList:{add(){},remove(){},toggle(){}}});return nodes.get(id);}};
+  const document={getElementById(id){if(!nodes.has(id))nodes.set(id,{disabled:false,hidden:false,textContent:'',innerHTML:'',className:'',style:{},setAttribute(){},classList:{add(){},remove(){},toggle(){}}});return nodes.get(id);}};
   const context={ document,TOKEN:'session',USER_ID:'11111111-1111-4111-8111-111111111111',PERFIL:{admin:false,aprovado:true},CONFIG:null,CONFIG_OK:false,
-    navigator:{onLine:true},pedidos:{snapshot:()=>({phase:'idle',busy:false})},VCNControl:core,Date,Array,Number,String,JSON,
+    navigator:{onLine:true},pedidos:{snapshot:()=>({phase:'idle',busy:false})},configEmAndamento:null,VCNControl:core,Date,Array,Number,String,JSON,
     async requisicaoAutenticada(){return {ok:false,status:500,data:null};},ultimoHistoricoHtml:'',fmt(){return '';},fmtDataHora(){return '';},esc:x=>String(x) };
   vm.createContext(context);return {context,nodes};
 }
@@ -19,12 +19,12 @@ const config=section('async function carregarConfigSilencioso()','async function
 const status=section('async function verificarStatus()','async function aprovar(id)');
 test('erro de configuração bloqueia novos pedidos e não declara conexão do ESP32',async()=>{
   const s=ui();vm.runInContext(controls+'\n'+config+'\n'+status,s.context);await s.context.verificarStatus();
-  assert.equal(s.nodes.get('btn-abrir').disabled,true);assert.match(s.nodes.get('s-txt').textContent,/Não foi possível/);assert.doesNotMatch(s.nodes.get('s-txt').textContent,/pronto para uso/);
+  assert.equal(s.nodes.get('btn-abrir').disabled,true);assert.equal(s.nodes.get('s-txt').textContent,'Arduino: sem verificação');
 });
 test('servidor disponível não é tratado como heartbeat do dispositivo',async()=>{
   const s=ui();s.context.requisicaoAutenticada=async()=>({ok:true,status:200,data:[{modo_manutencao:false,nome_dispositivo:'Portão',tempo_pulso_ms:400,expira_comando_seg:30}]});
   vm.runInContext(controls+'\n'+config+'\n'+status,s.context);await s.context.verificarStatus();
-  assert.equal(s.nodes.get('btn-abrir').disabled,false);assert.match(s.nodes.get('s-txt').textContent,/ESP32 sem verificação/);assert.match(s.nodes.get('s-dot').className,/warn/);
+  assert.equal(s.nodes.get('btn-abrir').disabled,false);assert.equal(s.nodes.get('s-txt').textContent,'Arduino: sem verificação');assert.match(s.nodes.get('s-dot').className,/warn/);
 });
 test('configuração recebida fora dos limites também bloqueia novos pedidos',async()=>{
   for(const invalid of [{tempo_pulso_ms:9999},{tempo_pulso_ms:null},{expira_comando_seg:120},{modo_manutencao:'false'}]){
@@ -66,4 +66,41 @@ test('renovações concorrentes compartilham uma única chamada',async()=>{
   vm.createContext(c);vm.runInContext(section('async function renovarToken()','function aplicarSessao('),c);
   const a=c.renovarToken(),b=c.renovarToken();assert.equal(calls,1);resolve({ok:true,data:{access_token:'new',refresh_token:'rotated',expires_in:3600}});
   assert.equal(await a,true);assert.equal(await b,true);assert.equal(c.TOKEN,'new');
+});
+test('configurações simultâneas compartilham a consulta; próxima verificação lê dados novos',async()=>{
+  const s=ui();let resolve,calls=0;
+  s.context.requisicaoAutenticada=()=>{calls++;return new Promise(r=>{resolve=r;});};
+  vm.runInContext(controls+'\n'+config,s.context);
+  const a=s.context.carregarConfigSilencioso(),b=s.context.carregarConfigSilencioso();
+  assert.equal(calls,1);
+  resolve({ok:true,data:[{modo_manutencao:false,tempo_pulso_ms:400,expira_comando_seg:30}]});
+  assert.deepEqual(await Promise.all([a,b]),[true,true]);
+  const c=s.context.carregarConfigSilencioso();assert.equal(calls,2);
+  resolve({ok:false,status:403});assert.equal(await c,false);assert.equal(s.nodes.get('btn-abrir').disabled,true);
+});
+test('histórico não compete com a consulta de pedido em andamento',async()=>{
+  const s=ui();s.context.PERFIL.admin=true;s.context.pedidos.snapshot=()=>({busy:true});
+  s.context.supa=()=>{throw Error('Histórico deveria aguardar');};
+  vm.runInContext(section('async function carregarLogs()','// Admin'),s.context);await s.context.carregarLogs();
+});
+test('estados do pedido não escrevem mensagens na barra da placa',()=>{
+  const s=ui();s.context.definirStatus=()=>{throw Error('Pedido não deve alterar status da placa');};
+  vm.runInContext(section('function mostrarEstadoPedido()','async function enviarComando(acao)'),s.context);
+  for(const phase of ['sending','waiting','confirmed','expired','not_found','unavailable']) {
+    s.context.pedidos.snapshot=()=>({phase,busy:phase!=='confirmed'&&phase!=='expired'});
+    s.context.mostrarEstadoPedido();
+  }
+});
+test('abertura faz uma verificação e não espera pelo histórico',async()=>{
+  const s=ui();let configurations=0,restores=0,logs=0,profileReads=0;const timers=[];
+  const profile={ok:true,data:[{admin:true,aprovado:true}]};
+  Object.assign(s.context,{getPerfil:async()=>{profileReads++;return profile;},tela(){},
+    verificarStatus:async()=>{configurations++;},carregarLogs:()=>{logs++;return new Promise(()=>{});},
+    contarPendentes(){},atualizarBotoesComando(){},setInterval:fn=>{timers.push(fn);return timers.length;},clearInterval(){},
+    perfilTimer:null,logTimer:null,statusTimer:null,DEBUG:false,LOG_REFRESH_MS:2000,STATUS_CHECK_MS:10000});
+  s.context.pedidos.restore=async()=>{restores++;};
+  vm.runInContext(section('async function carregarPerfil(','// A interface acompanha'),s.context);
+  await s.context.carregarPerfil();
+  assert.equal(configurations,1);assert.equal(restores,1);assert.equal(logs,1);assert.equal(timers.length,2);
+  await s.context.carregarPerfil(false,profile);assert.equal(profileReads,1);
 });

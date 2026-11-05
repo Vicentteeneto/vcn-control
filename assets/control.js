@@ -46,7 +46,11 @@
       notify();
       if (options.onSettled) options.onSettled(snapshot());
     }
-    function plan(delay = 2000) {
+    function nextDelay() {
+      const elapsed = now() - current.createdAt;
+      return elapsed < 5000 ? 250 : elapsed < 15000 ? 500 : 1000;
+    }
+    function plan(delay = nextDelay()) {
       if (timer) cancel(timer);
       if (current) timer = schedule(() => { timer = null; refresh(); }, delay);
     }
@@ -85,7 +89,7 @@
         } catch (_) {
           if (same(gen, id) && rev === revision) update({ phase: 'unavailable' });
         }
-        if (same(gen, id) && rev === revision) plan(current.phase === 'waiting' ? 2000 : 5000);
+        if (same(gen, id) && rev === revision) plan(current.phase === 'waiting' ? nextDelay() : 5000);
         return snapshot();
       })();
       refreshing = operation; refreshRevision = rev;
@@ -109,7 +113,7 @@
         return snapshot();
       }
       if (r.ok && Array.isArray(r.data) && r.data.length && applyRecord(r.data[0])) {
-        if (current) plan();
+        if (current) plan(0);
         return snapshot();
       }
       update({ phase: 'verifying' });

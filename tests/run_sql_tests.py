@@ -84,6 +84,25 @@ with tempfile.TemporaryDirectory(prefix='vcn-db-', dir=work) as directory:
         hardening=(ROOT/'supabase/migrations/20261105225941_identidade_restrita_esp32.sql').read_text()
         sql(hardening)
         sql(hardening)
+        indexed_queue=(ROOT/'supabase/migrations/20261105232215_fila_esp32_indexada.sql').read_text()
+        before_queue=sql('select coalesce(jsonb_agg(to_jsonb(q) order by id),\'[]\'::jsonb) from public.comandos_pendentes_validos q;')
+        sql(indexed_queue)
+        permission_queries=(ROOT/'supabase/migrations/20261105232436_consultas_permissao_otimizadas.sql').read_text()
+        sql(permission_queries)
+        sql(permission_queries)
+        case('leitura de comandos e perfis continua restrita ao próprio usuário',require(
+            "not exists(select 1 from public.comandos where usuario_id<>'"+USER+"')",'Comando de terceiro exposto')+
+            require("(select count(*) from public.usuarios)=1",'Perfil de terceiro exposto'),USER)
+        case('administrador humano mantém leitura de todos os perfis',require(
+            "(select count(*) from public.usuarios)=4",'Administrador perdeu perfis'),ADMIN)
+        sql(indexed_queue)
+        assert before_queue==sql('select coalesce(jsonb_agg(to_jsonb(q) order by id),\'[]\'::jsonb) from public.comandos_pendentes_validos q;')
+        case('fila indexada preserva security_invoker e índice existente',require(
+            "(select 'security_invoker=true'=any(reloptions) from pg_class where oid='public.comandos_pendentes_validos'::regclass)", 'View ignora permissões')+
+            require("to_regclass('public.comandos_pendentes_criado_idx') is not null",'Índice ausente'),role=env['PGUSER'])
+        sql((ROOT/'supabase/seguranca_opcional/04_reverter_fila_indexada.sql').read_text())
+        assert before_queue==sql('select coalesce(jsonb_agg(to_jsonb(q) order by id),\'[]\'::jsonb) from public.comandos_pendentes_validos q;')
+        sql(indexed_queue)
         case('equipamento deixa de ser administrador',require('not public.is_admin()','Equipamento ainda administrador'),DEVICE)
         case('equipamento continua lendo a configuração exigida pelo firmware',require(
             "(select wifi_setup_ssid from public.configuracoes where id='portao_principal')='VCN-Control-Setup'",'Leitura de configuração quebrada'),DEVICE)
@@ -122,6 +141,10 @@ with tempfile.TemporaryDirectory(prefix='vcn-db-', dir=work) as directory:
         sql('update private.vcn_devices set ativo=false;')
         case('equipamento desativado não volta a herdar administração',require('not public.is_admin()','Dispositivo inativo herdou admin')+
              require('(select count(*) from public.configuracoes)=0','Dispositivo inativo leu configuração'),DEVICE)
+        sql((ROOT/'supabase/seguranca_opcional/05_reverter_consultas_permissao.sql').read_text())
+        case('reversão da otimização conserva isolamento entre usuários',require(
+            "(select count(*) from public.usuarios)=1",'Reversão expôs perfis'),USER)
+        sql(permission_queries)
         sql((ROOT/'supabase/seguranca_opcional/03_reverter_identidade_restrita.sql').read_text())
         case('reversão restaura o perfil anterior sem apagar dados',require('public.is_admin()','Perfil anterior não restaurado')+
              require('(select count(*) from public.comandos)=2','Dados de comandos alterados na reversão'),DEVICE)

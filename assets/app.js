@@ -88,6 +88,7 @@ async function enviarComandoAdmin(acao) {
 let TOKEN = null, USER_ID = null, PERFIL = null;
 let REFRESH = null, PERSIST = false, refreshTimer = null;
 let CONFIG = null, CONFIG_OK = false;
+let configEmAndamento = null;
 let renovarEmAndamento = null;
 let ultimoHistoricoHtml = "";
 let logTimer = null;
@@ -389,7 +390,7 @@ async function sair() {
   const tokenAtual = TOKEN;
   limparTimers();
   pedidos.stop();
-  CONFIG = null; CONFIG_OK = false; ultimoHistoricoHtml = "";
+  CONFIG = null; CONFIG_OK = false; configEmAndamento = null; ultimoHistoricoHtml = "";
   TOKEN = null; USER_ID = null; PERFIL = null; REFRESH = null;
   limparSessao();
 
@@ -399,7 +400,7 @@ async function sair() {
   document.getElementById('btn-abrir').disabled = true;
   document.getElementById('btn-fechar').disabled = true;
   document.getElementById('s-dot').className = 'dot';
-  document.getElementById('s-txt').textContent = 'Verificando conexão...';
+  document.getElementById('s-txt').textContent = 'Arduino: sem verificação';
   document.getElementById('sec-log').style.display = 'none';
   // Mantém apenas o e-mail se "lembrar" estava marcado.
   tela('t-login');
@@ -408,11 +409,11 @@ document.getElementById('btn-sair').onclick    = sair;
 document.getElementById('btn-sair-ag').onclick = sair;
 
 // Carregar perfil
-async function carregarPerfil(jaRenovou = false) {
+async function carregarPerfil(jaRenovou = false, respostaInicial = null) {
   if (!TOKEN || !USER_ID) return;
 
   const usuarioConsultado = USER_ID;
-  const r = await getPerfil(usuarioConsultado, TOKEN);
+  const r = respostaInicial || await getPerfil(usuarioConsultado, TOKEN);
   if (!TOKEN || USER_ID !== usuarioConsultado) return;
   const dbg = DEBUG ? document.getElementById('dbg-ag') : null;
 
@@ -451,19 +452,19 @@ async function carregarPerfil(jaRenovou = false) {
   CONFIG_OK = false;
   atualizarBotoesComando();
   tela('t-app');
-  await carregarConfigSilencioso();
+  // Restaura primeiro o bloqueio de um pedido incerto; configuração e consulta podem seguir juntas.
+  await Promise.all([pedidos.restore(USER_ID), verificarStatus()]);
   if (!TOKEN || USER_ID !== usuarioConsultado) return;
-  await pedidos.restore(USER_ID);
 
   // Log só para admin
   const secLog = document.getElementById('sec-log');
   if (PERFIL.admin === true) {
     secLog.style.display = 'block';
     secLog.style.visibility = 'visible';
-    await carregarLogs();
+    carregarLogs();
     contarPendentes();
     if (logTimer) clearInterval(logTimer);
-    logTimer = setInterval(() => { if (!document.hidden) carregarLogs(); }, LOG_REFRESH_MS);
+    logTimer = setInterval(() => { if (!document.hidden && !pedidos.snapshot().busy) carregarLogs(); }, LOG_REFRESH_MS);
   } else {
     secLog.style.display = 'none';
     secLog.style.visibility = 'hidden';
@@ -471,7 +472,6 @@ async function carregarPerfil(jaRenovou = false) {
     logTimer = null;
   }
 
-  await verificarStatus();
   if (statusTimer) clearInterval(statusTimer);
   statusTimer = setInterval(() => { if (!document.hidden) verificarStatus(); }, STATUS_CHECK_MS);
 }
@@ -492,7 +492,11 @@ const pedidos = VCNControl.create({
   storage: armazenamentoPedidos,
   request: requisicaoAutenticada,
   onChange: () => { atualizarBotoesComando(); mostrarEstadoPedido(); },
-  onSettled: () => { carregarLogs(); }
+  onSettled: state => {
+    if (state.phase === 'failed') toast('Falha no pedido. Verifique sua conexão e permissão.');
+    if (state.phase === 'expired') toast('O pedido expirou. Confira o portão antes de tentar novamente.');
+    carregarLogs();
+  }
 });
 
 function atualizarBotoesComando() {
@@ -512,20 +516,9 @@ function mostrarEstadoPedido() {
   const repetir = document.getElementById('btn-repetir-pedido');
   if (verificar) verificar.hidden = !p.busy;
   if (repetir) repetir.hidden = p.phase !== 'not_found';
-  const acao = p.action === 'fechar' ? 'fechar' : 'abrir';
-  const mensagens = {
-    sending: 'Enviando pedido de ' + acao + '…',
-    waiting: 'Pedido enviado — aguardando confirmação.',
-    verifying: 'Verificando o pedido. Não é necessário enviar novamente.',
-    unavailable: 'Sem resposta do pedido. Verifique antes de tentar novamente.',
-    not_found: 'Pedido não localizado. Você pode verificar ou tentar o mesmo pedido.',
-    confirmed: 'Último pedido confirmado. A posição do portão não é verificada.',
-    expired: 'Pedido expirado sem confirmação. Confira o portão antes de novo envio.',
-    failed: p.reason === 'permission' ? 'Pedido recusado: confira sua sessão ou permissão.' : 'Pedido não confirmado. Confira o portão antes de novo envio.'
-  };
-  if (!mensagens[p.phase]) return false;
-  definirStatus(mensagens[p.phase], p.phase === 'confirmed' ? 'on' : 'warn');
-  return true;
+  // A barra é exclusiva da conexão da placa; o acompanhamento continua protegendo contra duplicação.
+  for (const id of ['btn-abrir', 'btn-fechar']) document.getElementById(id).setAttribute('aria-busy', String(p.busy));
+  return p.busy;
 }
 async function enviarComando(acao) {
   if (!['abrir', 'fechar'].includes(acao)) return toast('Pedido inválido');
@@ -550,7 +543,7 @@ if (btnRepetirPedido) btnRepetirPedido.onclick = async () => {
 
 // Logs
 async function carregarLogs() {
-  if (!PERFIL || PERFIL.admin !== true || !TOKEN) return;
+  if (!PERFIL || PERFIL.admin !== true || !TOKEN || pedidos.snapshot().busy) return;
   const lista = document.getElementById('log-lista');
   if (!lista) return;
 
@@ -624,13 +617,21 @@ document.getElementById('btn-back').onclick = () => tela('t-app');
 async function carregarConfigSilencioso() {
   if (!TOKEN || !USER_ID) { CONFIG_OK = false; return false; }
   const user = USER_ID;
-  const r = await requisicaoAutenticada('GET', '/rest/v1/configuracoes?id=eq.portao_principal&select=*', null, user);
-  if (!TOKEN || USER_ID !== user) return false;
-  CONFIG_OK = !!(r.ok && Array.isArray(r.data) && r.data.length && VCNControl.validConfig(r.data[0]));
-  CONFIG = CONFIG_OK ? r.data[0] : null;
-  if (CONFIG && CONFIG.nome_dispositivo) document.getElementById('t-dispositivo').textContent = CONFIG.nome_dispositivo;
-  atualizarBotoesComando();
-  return CONFIG_OK;
+  if (configEmAndamento && configEmAndamento.user === user) return configEmAndamento.promise;
+  const task = { user, promise: null };
+  configEmAndamento = task;
+  task.promise = (async () => {
+    try {
+      const r = await requisicaoAutenticada('GET', '/rest/v1/configuracoes?id=eq.portao_principal&select=*', null, user);
+      if (!TOKEN || USER_ID !== user || configEmAndamento !== task) return false;
+      CONFIG_OK = !!(r.ok && Array.isArray(r.data) && r.data.length && VCNControl.validConfig(r.data[0]));
+      CONFIG = CONFIG_OK ? r.data[0] : null;
+      if (CONFIG && CONFIG.nome_dispositivo) document.getElementById('t-dispositivo').textContent = CONFIG.nome_dispositivo;
+      atualizarBotoesComando();
+      return CONFIG_OK;
+    } finally { if (configEmAndamento === task) configEmAndamento = null; }
+  })();
+  return task.promise;
 }
 
 async function carregarConfigAdmin() {
@@ -768,19 +769,14 @@ async function verificarStatus() {
   const bar = document.getElementById('sbar');
   if (!navigator.onLine) {
     bar.classList.add('offline');
-    definirStatus('Sem internet. Nenhum novo pedido pode ser enviado.');
+    definirStatus('Arduino: sem verificação', 'warn');
     return;
   }
   const ok = await carregarConfigSilencioso();
   if (!TOKEN) return;
   bar.classList.toggle('offline', !ok || !!(CONFIG && CONFIG.modo_manutencao));
-  if (!ok) { definirStatus('Não foi possível verificar as configurações. Tente novamente.'); return; }
-  if (mostrarEstadoPedido()) return;
-  if (CONFIG.modo_manutencao) {
-    definirStatus(PERFIL && PERFIL.admin === true ? 'Manutenção ativa — acionamento restrito ao administrador.' : 'Em manutenção — pedidos bloqueados.');
-    return;
-  }
-  definirStatus('Servidor disponível. ESP32 sem verificação em tempo real.');
+  // O firmware instalado ainda não envia presença: não transforma saúde do servidor em Online da placa.
+  definirStatus('Arduino: sem verificação', 'warn');
 }
 
 async function aprovar(id) {
@@ -962,7 +958,7 @@ window.addEventListener('load', async () => {
     REFRESH = s.refreshToken || null;
     PERSIST = false;
     if (REFRESH) agendarRenovacao(600);
-    await carregarPerfil();
+    await carregarPerfil(false, r);
     return;
   }
 

@@ -100,3 +100,27 @@ test('navegador sem randomUUID usa getRandomValues sem depender de Math.random',
   const c=sandbox.module.exports.create({request:async(method,path,body)=>{if(body)sentId=body.id;return {ok:false,status:403};}});
   await c.send('abrir',user);assert.match(sentId,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
+test('primeira confirmação é imediata e consultas seguintes usam 250 ms',async()=>{
+  const s=setup(async()=>({ok:true,status:200,data:[waiting]}));
+  await s.controller.send('abrir',user);assert.equal(s.timers.at(-1).ms,0);
+  await s.controller.refresh();assert.equal(s.timers.at(-1).ms,250);
+  assert.equal(s.calls.filter(c=>c[0]==='POST').length,1);
+});
+test('rede indisponível mantém recuo de cinco segundos e não reenvia',async()=>{
+  const s=setup(async method=>method==='POST'?{ok:true,status:201,data:[waiting]}:{ok:false,status:503});
+  await s.controller.send('abrir',user);await s.controller.refresh();
+  assert.equal(s.timers.at(-1).ms,5000);assert.equal(s.calls.filter(c=>c[0]==='POST').length,1);
+});
+test('verificações rápidas não sobrepõem requisições',async()=>{
+  let resolve,gets=0;
+  const s=setup(async method=>method==='POST'?{ok:true,status:201,data:[waiting]}:(gets++,new Promise(r=>{resolve=r;})));
+  await s.controller.send('abrir',user);const a=s.controller.refresh(),b=s.controller.refresh();assert.equal(gets,1);
+  resolve({ok:true,status:200,data:[waiting]});await Promise.all([a,b]);assert.equal(gets,1);
+});
+test('intervalos sobem para 500 e 1000 ms sem aumentar carga em espera longa',async()=>{
+  let elapsed=0;const timers=[];
+  const c=create({now:()=>now+elapsed,uuid:()=>id,setTimeout:(fn,ms)=>{timers.push(ms);return timers.length;},clearTimeout(){},
+    request:async()=>({ok:true,status:200,data:[waiting]})});
+  await c.send('abrir',user);elapsed=6000;await c.refresh();assert.equal(timers.at(-1),500);
+  elapsed=16000;await c.refresh();assert.equal(timers.at(-1),1000);
+});
