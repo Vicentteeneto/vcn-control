@@ -163,10 +163,76 @@
     }
     return { send, retry, refresh, restore, stop, snapshot };
   }
+  function createPresence(options) {
+    const now = options.now || (() => globalThis.performance ? globalThis.performance.now() : Date.now());
+    const schedule = options.setTimeout || setTimeout, cancel = options.clearTimeout || clearTimeout;
+    let user = null, generation = 0, timer = null, expiryTimer = null, operation = null, until = 0;
+    let state = { online: false, reason: 'disconnected' };
+    const snapshot = () => ({ online: !!user && state.online && until > now(), reason: state.reason });
+    function notify(online, reason) {
+      const changed = state.online !== online || state.reason !== reason;
+      state = { online, reason };
+      if (changed && options.onChange) options.onChange(snapshot());
+    }
+    function clearExpiry() { if (expiryTimer) cancel(expiryTimer); expiryTimer = null; }
+    function offline(reason) { until = 0; clearExpiry(); notify(false, reason); }
+    function plan(delay) {
+      if (timer) cancel(timer);
+      if (user) timer = schedule(() => { timer = null; refresh(); }, delay);
+    }
+    async function refresh() {
+      if (!user) return snapshot();
+      if (operation) return operation;
+      if (timer) cancel(timer);
+      timer = null;
+      if (options.canPoll && !options.canPoll()) {
+        offline('unavailable'); plan(5000); return snapshot();
+      }
+      const gen = generation, requestedUser = user, started = now();
+      const task = (async () => {
+        let delay = 2000;
+        try {
+          const r = await options.request('GET', '/rest/v1/rpc/vcn_device_status', null, requestedUser, { timeoutMs: 4500 });
+          if (generation !== gen || user !== requestedUser) return snapshot();
+          const d = r.data;
+          if (!r.ok || !d || Array.isArray(d) || typeof d.online !== 'boolean' || d.valid_for_ms !== 5000 ||
+              (d.online && (!Number.isFinite(d.age_ms) || d.age_ms < 0))) {
+            offline('unavailable'); delay = 5000;
+          } else if (d.online && started + 5000 - d.age_ms > now()) {
+            until = started + 5000 - d.age_ms;
+            clearExpiry();
+            const validUntil = until;
+            expiryTimer = schedule(() => {
+              if (generation === gen && user === requestedUser && until === validUntil) offline('disconnected');
+            }, until - now() + 1);
+            notify(true, 'connected');
+          } else offline('disconnected');
+        } catch (_) {
+          if (generation !== gen || user !== requestedUser) return snapshot();
+          offline('unavailable'); delay = 5000;
+        }
+        if (generation === gen && user === requestedUser) plan(delay);
+        return snapshot();
+      })();
+      operation = task;
+      try { return await task; } finally { if (operation === task) operation = null; }
+    }
+    function stop() {
+      generation++; user = null;
+      if (timer) cancel(timer);
+      timer = null; operation = null; offline('disconnected');
+    }
+    function start(userId) {
+      if (!UUID.test(userId)) throw new Error('Usuário inválido');
+      if (user !== userId) { stop(); user = userId; }
+      return refresh();
+    }
+    return { start, refresh, stop, snapshot };
+  }
   function validConfig(config) {
     return !!config && typeof config.modo_manutencao === 'boolean' &&
       Number.isInteger(config.tempo_pulso_ms) && config.tempo_pulso_ms >= 100 && config.tempo_pulso_ms <= 2000 &&
       Number.isInteger(config.expira_comando_seg) && config.expira_comando_seg >= 5 && config.expira_comando_seg <= 60;
   }
-  return Object.freeze({ create, validConfig, validUuid: value => typeof value === 'string' && UUID.test(value) });
+  return Object.freeze({ create, createPresence, validConfig, validUuid: value => typeof value === 'string' && UUID.test(value) });
 });

@@ -94,12 +94,10 @@ let ultimoHistoricoHtml = "";
 let logTimer = null;
 let statusTimer = null;
 let perfilTimer = null;
-let arduinoConfirmadoAte = 0, arduinoConfirmacaoTimer = null;
 
 const LOG_REFRESH_MS = 2000;
 const STATUS_CHECK_MS = 10000;
 const PERFIL_RETRY_MS = 2000;
-const ARDUINO_ONLINE_MS = 30000;
 // Painel técnico da tela "aguardando" só aparece com ?debug=1 na URL.
 const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
 if (DEBUG) document.getElementById('dbg-ag').classList.add('on');
@@ -129,8 +127,6 @@ function limparTimers() {
   logTimer = null;
   statusTimer = null;
   perfilTimer = null;
-  if (arduinoConfirmacaoTimer) clearTimeout(arduinoConfirmacaoTimer);
-  arduinoConfirmacaoTimer = null;
 }
 function agendarPerfil() {
   if (perfilTimer) clearTimeout(perfilTimer);
@@ -394,8 +390,8 @@ async function sair() {
   const tokenAtual = TOKEN;
   limparTimers();
   pedidos.stop();
+  presenca.stop();
   CONFIG = null; CONFIG_OK = false; configEmAndamento = null; ultimoHistoricoHtml = "";
-  arduinoConfirmadoAte = 0;
   TOKEN = null; USER_ID = null; PERFIL = null; REFRESH = null;
   limparSessao();
 
@@ -405,7 +401,7 @@ async function sair() {
   document.getElementById('btn-abrir').disabled = true;
   document.getElementById('btn-fechar').disabled = true;
   document.getElementById('s-dot').className = 'dot';
-  document.getElementById('s-txt').textContent = 'Arduino: sem sinal recente';
+  document.getElementById('s-txt').textContent = 'Arduino: Offline';
   document.getElementById('s-txt').title = '';
   document.getElementById('sec-log').style.display = 'none';
   // Mantém apenas o e-mail se "lembrar" estava marcado.
@@ -458,6 +454,7 @@ async function carregarPerfil(jaRenovou = false, respostaInicial = null) {
   CONFIG_OK = false;
   atualizarBotoesComando();
   tela('t-app');
+  presenca.start(USER_ID);
   // Restaura primeiro o bloqueio de um pedido incerto; configuração e consulta podem seguir juntas.
   await Promise.all([pedidos.restore(USER_ID), verificarStatus()]);
   if (!TOKEN || USER_ID !== usuarioConsultado) return;
@@ -499,11 +496,16 @@ const pedidos = VCNControl.create({
   request: requisicaoAutenticada,
   onChange: () => { atualizarBotoesComando(); mostrarEstadoPedido(); },
   onSettled: state => {
-    registrarConfirmacaoArduino(state);
+    presenca.refresh();
     if (state.phase === 'failed') toast('Falha no pedido. Verifique sua conexão e permissão.');
     if (state.phase === 'expired') toast('O pedido expirou. Confira o portão antes de tentar novamente.');
     carregarLogs();
   }
+});
+const presenca = VCNControl.createPresence({
+  request: requisicaoAutenticada,
+  canPoll: () => !document.hidden && navigator.onLine,
+  onChange: () => atualizarStatusArduino()
 });
 
 function atualizarBotoesComando() {
@@ -518,29 +520,13 @@ function definirStatus(texto, classe = 'warn') {
   document.getElementById('s-txt').textContent = texto;
 }
 function atualizarStatusArduino() {
-  const recente = !!TOKEN && navigator.onLine && arduinoConfirmadoAte > Date.now();
-  document.getElementById('sbar').classList.remove('offline');
-  definirStatus(recente ? 'Arduino: Online' : 'Arduino: sem sinal recente', recente ? 'on' : 'warn');
-  document.getElementById('s-txt').title = recente
-    ? 'Comunicação confirmada por uma resposta recebida nos últimos 30 segundos.'
-    : 'A placa ainda não envia sinal periódico de presença. O estado Online é verificado por uma resposta recente.';
-}
-function registrarConfirmacaoArduino(state) {
-  if (!TOKEN || state.phase !== 'confirmed' || state.userId !== USER_ID) return false;
-  const confirmado = Date.parse(state.confirmedAt), agora = Date.now();
-  // Um registro restaurado antigo, um aceite HTTP ou uma data inválida não comprovam presença recente.
-  if (!Number.isFinite(confirmado) || confirmado > agora + 5000 || agora - confirmado >= ARDUINO_ONLINE_MS) return false;
-  const ate = Math.min(agora, confirmado) + ARDUINO_ONLINE_MS;
-  arduinoConfirmadoAte = Math.max(arduinoConfirmadoAte, ate);
-  if (arduinoConfirmacaoTimer) clearTimeout(arduinoConfirmacaoTimer);
-  const user = USER_ID, validade = arduinoConfirmadoAte;
-  arduinoConfirmacaoTimer = setTimeout(() => {
-    if (USER_ID !== user || arduinoConfirmadoAte !== validade) return;
-    arduinoConfirmacaoTimer = null;
-    atualizarStatusArduino();
-  }, Math.max(0, validade - Date.now()) + 1);
-  atualizarStatusArduino();
-  return true;
+  const p = presenca.snapshot(), online = !!TOKEN && navigator.onLine && p.online;
+  document.getElementById('sbar').classList.toggle('offline', !online);
+  definirStatus(online ? 'Arduino: Online' : 'Arduino: Offline', online ? 'on' : 'off');
+  document.getElementById('s-txt').title = online
+    ? 'A placa está mantendo comunicação autenticada com o servidor.'
+    : !navigator.onLine || p.reason === 'unavailable' ? 'Não foi possível verificar a placa: conexão com o servidor indisponível.'
+    : 'A placa não está mantendo comunicação com o servidor.';
 }
 function mostrarEstadoPedido() {
   const p = pedidos.snapshot();
@@ -794,10 +780,11 @@ async function carregarUsuarios() {
   lista.innerHTML = html;
 }
 
-// Presença comprovada por resposta recente, sem confundir disponibilidade do servidor com a placa.
+// Presença contínua das consultas autenticadas da placa, independente de acionamentos.
 async function verificarStatus() {
   if (!TOKEN) return;
   atualizarBotoesComando();
+  presenca.refresh();
   if (!navigator.onLine) {
     atualizarStatusArduino();
     return;

@@ -90,6 +90,28 @@ with tempfile.TemporaryDirectory(prefix='vcn-db-', dir=work) as directory:
         permission_queries=(ROOT/'supabase/migrations/20261105232436_consultas_permissao_otimizadas.sql').read_text()
         sql(permission_queries)
         sql(permission_queries)
+        presence=(ROOT/'supabase/migrations/20261106224300_presenca_consultas_esp32.sql').read_text()
+        sql(presence)
+        sql(presence)
+        sql("begin read only; select set_config('request.jwt.claim.sub','"+DEVICE+"',true); set local role authenticated; select public.vcn_request_presence(); "
+            "select set_config('request.jwt.claim.sub','"+USER+"',true);"+
+            require("(public.vcn_device_status()->>'online')::boolean",'GET de leitura não renovou presença')+' rollback;')
+        count+=1;print('OK SQL: presença funciona em GET READ ONLY sem gravar linhas',flush=True)
+        case('usuário comum não consegue renovar presença da placa',
+            'select public.vcn_request_presence();'+require("not (public.vcn_device_status()->>'online')::boolean",'Pessoa simulou presença'),USER)
+        case('anônimo não lê estado e hook anônimo não causa erro',
+            'select public.vcn_request_presence();'+denied('select public.vcn_device_status()'),role='anon')
+        case('cadastro não aprovado não lê estado da placa',denied('select public.vcn_device_status()'),WAITING)
+        case('renovações não acumulam locks nem bloqueiam a conexão',
+            'select public.vcn_request_presence() from generate_series(1,20);'+require(
+            "(select count(*) from pg_locks where locktype='advisory' and pid=pg_backend_pid())=1",'Marcadores acumulados')+
+            'select pg_advisory_unlock_all();'+require(
+            "(select count(*) from pg_locks where locktype='advisory' and pid=pg_backend_pid())=0",'Aquisições recursivas acumuladas'),DEVICE)
+        for offset,label in [(-10,'sinal antigo'),(10,'sinal futuro')]:
+            case(label+' nunca informa Online',
+                "select pg_advisory_lock_shared(private.vcn_presence_key('"+DEVICE+"'),floor(extract(epoch from clock_timestamp())+"+str(offset)+")::integer);"+
+                "select set_config('request.jwt.claim.sub','"+USER+"',true); set local role authenticated; select public.vcn_request_presence();"+
+                require("not (public.vcn_device_status()->>'online')::boolean",'Sinal fora da validade aceito'),role=env['PGUSER'])
         case('leitura de comandos e perfis continua restrita ao próprio usuário',require(
             "not exists(select 1 from public.comandos where usuario_id<>'"+USER+"')",'Comando de terceiro exposto')+
             require("(select count(*) from public.usuarios)=1",'Perfil de terceiro exposto'),USER)
@@ -141,6 +163,9 @@ with tempfile.TemporaryDirectory(prefix='vcn-db-', dir=work) as directory:
         sql('update private.vcn_devices set ativo=false;')
         case('equipamento desativado não volta a herdar administração',require('not public.is_admin()','Dispositivo inativo herdou admin')+
              require('(select count(*) from public.configuracoes)=0','Dispositivo inativo leu configuração'),DEVICE)
+        sql((ROOT/'supabase/seguranca_opcional/06_reverter_presenca.sql').read_text())
+        case('reversão da presença preserva comandos e permissões anteriores',require(
+            "(select count(*) from public.comandos)=2",'Reversão alterou comandos'),ADMIN)
         sql((ROOT/'supabase/seguranca_opcional/05_reverter_consultas_permissao.sql').read_text())
         case('reversão da otimização conserva isolamento entre usuários',require(
             "(select count(*) from public.usuarios)=1",'Reversão expôs perfis'),USER)

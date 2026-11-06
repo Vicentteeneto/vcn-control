@@ -11,7 +11,7 @@ function ui() {
   const document={getElementById(id){if(!nodes.has(id))nodes.set(id,{disabled:false,hidden:false,textContent:'',innerHTML:'',className:'',style:{},setAttribute(){},classList:{add(){},remove(){},toggle(){}}});return nodes.get(id);}};
   const context={ document,TOKEN:'session',USER_ID:'11111111-1111-4111-8111-111111111111',PERFIL:{admin:false,aprovado:true},CONFIG:null,CONFIG_OK:false,
     navigator:{onLine:true},pedidos:{snapshot:()=>({phase:'idle',busy:false})},configEmAndamento:null,VCNControl:core,Date,Array,Number,String,JSON,
-    arduinoConfirmadoAte:0,arduinoConfirmacaoTimer:null,ARDUINO_ONLINE_MS:30000,
+    presenca:{snapshot:()=>({online:false,reason:'disconnected'}),start:async()=>{},refresh:async()=>{},stop(){}},
     setTimeout:()=>1,clearTimeout(){},
     async requisicaoAutenticada(){return {ok:false,status:500,data:null};},ultimoHistoricoHtml:'',fmt(){return '';},fmtDataHora(){return '';},esc:x=>String(x) };
   vm.createContext(context);return {context,nodes};
@@ -21,12 +21,12 @@ const config=section('async function carregarConfigSilencioso()','async function
 const status=section('async function verificarStatus()','async function aprovar(id)');
 test('erro de configuração bloqueia novos pedidos e não declara conexão do ESP32',async()=>{
   const s=ui();vm.runInContext(controls+'\n'+config+'\n'+status,s.context);await s.context.verificarStatus();
-  assert.equal(s.nodes.get('btn-abrir').disabled,true);assert.equal(s.nodes.get('s-txt').textContent,'Arduino: sem sinal recente');
+  assert.equal(s.nodes.get('btn-abrir').disabled,true);assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Offline');
 });
 test('servidor disponível não é tratado como heartbeat do dispositivo',async()=>{
   const s=ui();s.context.requisicaoAutenticada=async()=>({ok:true,status:200,data:[{modo_manutencao:false,nome_dispositivo:'Portão',tempo_pulso_ms:400,expira_comando_seg:30}]});
   vm.runInContext(controls+'\n'+config+'\n'+status,s.context);await s.context.verificarStatus();
-  assert.equal(s.nodes.get('btn-abrir').disabled,false);assert.equal(s.nodes.get('s-txt').textContent,'Arduino: sem sinal recente');assert.match(s.nodes.get('s-dot').className,/warn/);
+  assert.equal(s.nodes.get('btn-abrir').disabled,false);assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Offline');assert.match(s.nodes.get('s-dot').className,/off/);
 });
 test('configuração recebida fora dos limites também bloqueia novos pedidos',async()=>{
   for(const invalid of [{tempo_pulso_ms:9999},{tempo_pulso_ms:null},{expira_comando_seg:120},{modo_manutencao:'false'}]){
@@ -106,47 +106,18 @@ test('abertura faz uma verificação e não espera pelo histórico',async()=>{
   assert.equal(configurations,1);assert.equal(restores,1);assert.equal(logs,1);assert.equal(timers.length,2);
   await s.context.carregarPerfil(false,profile);assert.equal(profileReads,1);
 });
-function presenceUi() {
-  const s=ui(),timers=[];let clock=Date.parse('2026-11-06T22:00:00Z');
-  s.context.Date=class extends Date{static now(){return clock;}};
-  s.context.setTimeout=(fn,ms)=>{timers.push({fn,ms});return timers.length;};
-  s.context.clearTimeout=id=>{timers[id-1].cancelled=true;};
-  vm.runInContext(controls+'\n'+config+'\n'+status,s.context);
-  return {...s,timers,setClock:value=>{clock=value;},clock:()=>clock,
-    ack:()=>({phase:'confirmed',userId:s.context.USER_ID,confirmedAt:new Date(clock).toISOString()})};
-}
-test('confirmação recente torna a placa Online e consulta de configuração não sobrescreve',async()=>{
-  const s=presenceUi();assert.equal(s.context.registrarConfirmacaoArduino(s.ack()),true);
-  assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Online');assert.equal(s.nodes.get('s-dot').className,'dot on');
+test('presença contínua mantém Online após atualizar configurações',async()=>{
+  const s=ui();s.context.presenca.snapshot=()=>({online:true,reason:'connected'});
   s.context.requisicaoAutenticada=async()=>({ok:true,data:[{modo_manutencao:false,tempo_pulso_ms:400,expira_comando_seg:30}]});
-  await s.context.verificarStatus();assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Online');
+  vm.runInContext(controls+'\n'+config+'\n'+status,s.context);await s.context.verificarStatus();
+  assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Online');assert.equal(s.nodes.get('s-dot').className,'dot on');
+  s.context.navigator.onLine=false;await s.context.verificarStatus();
+  assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Offline');assert.match(s.nodes.get('s-txt').title,/indisponível/);
 });
-test('presença expira mesmo sem outra consulta ou outro pedido',()=>{
-  const s=presenceUi();s.context.registrarConfirmacaoArduino(s.ack());
-  assert.equal(s.timers.length,1);assert.equal(s.timers[0].ms,30001);
-  s.setClock(s.clock()+30001);s.timers[0].fn();
-  assert.equal(s.nodes.get('s-txt').textContent,'Arduino: sem sinal recente');assert.equal(s.nodes.get('s-dot').className,'dot warn');
-});
-test('aceite, confirmação antiga, data futura ou outra conta não declaram Online',()=>{
-  const s=presenceUi(),ack=s.ack();
-  for(const invalid of [{...ack,phase:'waiting'},{...ack,confirmedAt:null},{...ack,confirmedAt:'inválido'},
-    {...ack,confirmedAt:new Date(s.clock()-30000).toISOString()},{...ack,confirmedAt:new Date(s.clock()+6000).toISOString()},
-    {...ack,userId:'22222222-2222-4222-8222-222222222222'}])assert.equal(s.context.registrarConfirmacaoArduino(invalid),false);
-  s.context.atualizarStatusArduino();assert.equal(s.nodes.get('s-txt').textContent,'Arduino: sem sinal recente');assert.equal(s.timers.length,0);
-});
-test('callback de confirmação anterior não modifica presença de resposta mais recente',()=>{
-  const s=presenceUi();s.context.registrarConfirmacaoArduino(s.ack());const first=s.timers[0];
-  s.setClock(s.clock()+10000);s.context.registrarConfirmacaoArduino(s.ack());assert.equal(first.cancelled,true);
-  s.setClock(s.clock()+20001);first.fn();assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Online');
-  s.setClock(s.clock()+10000);s.timers[1].fn();assert.equal(s.nodes.get('s-txt').textContent,'Arduino: sem sinal recente');
-});
-test('sair apaga presença e cancela validade; outra conta começa sem sinal',async()=>{
-  const s=presenceUi();s.context.registrarConfirmacaoArduino(s.ack());
+test('sair encerra monitor de presença antes de outra conta entrar',async()=>{
+  const s=ui();let stops=0;s.context.presenca.stop=()=>{stops++;};s.context.pedidos.stop=()=>{};
   Object.assign(s.context,{refreshTimer:null,logTimer:null,statusTimer:null,perfilTimer:null,
     REFRESH:null,limparSessao(){},signOut:async()=>({ok:true}),tela(){}});
-  s.context.pedidos.stop=()=>{};
   vm.runInContext(section('function limparTimers()','function agendarPerfil()')+'\n'+section('async function sair()','document.getElementById(\'btn-sair\')'),s.context);
-  await s.context.sair();assert.equal(s.context.arduinoConfirmadoAte,0);assert.equal(s.timers[0].cancelled,true);
-  s.context.TOKEN='outra-sessao';s.context.USER_ID='22222222-2222-4222-8222-222222222222';s.context.atualizarStatusArduino();
-  assert.equal(s.nodes.get('s-txt').textContent,'Arduino: sem sinal recente');
+  await s.context.sair();assert.equal(stops,1);assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Offline');
 });
