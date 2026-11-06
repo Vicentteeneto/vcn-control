@@ -94,10 +94,12 @@ let ultimoHistoricoHtml = "";
 let logTimer = null;
 let statusTimer = null;
 let perfilTimer = null;
+let arduinoConfirmadoAte = 0, arduinoConfirmacaoTimer = null;
 
 const LOG_REFRESH_MS = 2000;
 const STATUS_CHECK_MS = 10000;
 const PERFIL_RETRY_MS = 2000;
+const ARDUINO_ONLINE_MS = 30000;
 // Painel técnico da tela "aguardando" só aparece com ?debug=1 na URL.
 const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
 if (DEBUG) document.getElementById('dbg-ag').classList.add('on');
@@ -127,6 +129,8 @@ function limparTimers() {
   logTimer = null;
   statusTimer = null;
   perfilTimer = null;
+  if (arduinoConfirmacaoTimer) clearTimeout(arduinoConfirmacaoTimer);
+  arduinoConfirmacaoTimer = null;
 }
 function agendarPerfil() {
   if (perfilTimer) clearTimeout(perfilTimer);
@@ -391,6 +395,7 @@ async function sair() {
   limparTimers();
   pedidos.stop();
   CONFIG = null; CONFIG_OK = false; configEmAndamento = null; ultimoHistoricoHtml = "";
+  arduinoConfirmadoAte = 0;
   TOKEN = null; USER_ID = null; PERFIL = null; REFRESH = null;
   limparSessao();
 
@@ -400,7 +405,8 @@ async function sair() {
   document.getElementById('btn-abrir').disabled = true;
   document.getElementById('btn-fechar').disabled = true;
   document.getElementById('s-dot').className = 'dot';
-  document.getElementById('s-txt').textContent = 'Arduino: sem verificação';
+  document.getElementById('s-txt').textContent = 'Arduino: sem sinal recente';
+  document.getElementById('s-txt').title = '';
   document.getElementById('sec-log').style.display = 'none';
   // Mantém apenas o e-mail se "lembrar" estava marcado.
   tela('t-login');
@@ -493,6 +499,7 @@ const pedidos = VCNControl.create({
   request: requisicaoAutenticada,
   onChange: () => { atualizarBotoesComando(); mostrarEstadoPedido(); },
   onSettled: state => {
+    registrarConfirmacaoArduino(state);
     if (state.phase === 'failed') toast('Falha no pedido. Verifique sua conexão e permissão.');
     if (state.phase === 'expired') toast('O pedido expirou. Confira o portão antes de tentar novamente.');
     carregarLogs();
@@ -509,6 +516,31 @@ function atualizarBotoesComando() {
 function definirStatus(texto, classe = 'warn') {
   document.getElementById('s-dot').className = 'dot ' + classe;
   document.getElementById('s-txt').textContent = texto;
+}
+function atualizarStatusArduino() {
+  const recente = !!TOKEN && navigator.onLine && arduinoConfirmadoAte > Date.now();
+  document.getElementById('sbar').classList.remove('offline');
+  definirStatus(recente ? 'Arduino: Online' : 'Arduino: sem sinal recente', recente ? 'on' : 'warn');
+  document.getElementById('s-txt').title = recente
+    ? 'Comunicação confirmada por uma resposta recebida nos últimos 30 segundos.'
+    : 'A placa ainda não envia sinal periódico de presença. O estado Online é verificado por uma resposta recente.';
+}
+function registrarConfirmacaoArduino(state) {
+  if (!TOKEN || state.phase !== 'confirmed' || state.userId !== USER_ID) return false;
+  const confirmado = Date.parse(state.confirmedAt), agora = Date.now();
+  // Um registro restaurado antigo, um aceite HTTP ou uma data inválida não comprovam presença recente.
+  if (!Number.isFinite(confirmado) || confirmado > agora + 5000 || agora - confirmado >= ARDUINO_ONLINE_MS) return false;
+  const ate = Math.min(agora, confirmado) + ARDUINO_ONLINE_MS;
+  arduinoConfirmadoAte = Math.max(arduinoConfirmadoAte, ate);
+  if (arduinoConfirmacaoTimer) clearTimeout(arduinoConfirmacaoTimer);
+  const user = USER_ID, validade = arduinoConfirmadoAte;
+  arduinoConfirmacaoTimer = setTimeout(() => {
+    if (USER_ID !== user || arduinoConfirmadoAte !== validade) return;
+    arduinoConfirmacaoTimer = null;
+    atualizarStatusArduino();
+  }, Math.max(0, validade - Date.now()) + 1);
+  atualizarStatusArduino();
+  return true;
 }
 function mostrarEstadoPedido() {
   const p = pedidos.snapshot();
@@ -762,21 +794,17 @@ async function carregarUsuarios() {
   lista.innerHTML = html;
 }
 
-// Sem heartbeat do firmware, a interface não afirma presença atual do ESP32.
+// Presença comprovada por resposta recente, sem confundir disponibilidade do servidor com a placa.
 async function verificarStatus() {
   if (!TOKEN) return;
   atualizarBotoesComando();
-  const bar = document.getElementById('sbar');
   if (!navigator.onLine) {
-    bar.classList.add('offline');
-    definirStatus('Arduino: sem verificação', 'warn');
+    atualizarStatusArduino();
     return;
   }
-  const ok = await carregarConfigSilencioso();
+  await carregarConfigSilencioso();
   if (!TOKEN) return;
-  bar.classList.toggle('offline', !ok || !!(CONFIG && CONFIG.modo_manutencao));
-  // O firmware instalado ainda não envia presença: não transforma saúde do servidor em Online da placa.
-  definirStatus('Arduino: sem verificação', 'warn');
+  atualizarStatusArduino();
 }
 
 async function aprovar(id) {

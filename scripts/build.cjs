@@ -25,7 +25,7 @@ const files = ['./index.html', './manifest.json', ...built.map(file => './' + fi
   './assets/icon-maskable-512.png', './assets/apple-touch-icon.png', './assets/favicon.svg',
   './assets/fonts/inter.woff2', './assets/fonts/space-grotesk.woff2'];
 for (const file of files) if (!fs.existsSync(path.join(root, file))) throw new Error('Arquivo ausente: ' + file);
-const worker = template.replace('__VCN_CACHE_VERSION__', 'vcn-control-v22-' + revision)
+const worker = template.replace('__VCN_CACHE_VERSION__', 'vcn-control-v23-' + revision)
   .replace('__VCN_STATIC_FILES__', JSON.stringify(files, null, 2));
 fs.writeFileSync(path.join(root, 'service-worker.js'), worker);
 console.log('Arquivos de publicação gerados: ' + revision);
