@@ -206,6 +206,14 @@ button{font-family:inherit}
 .bp::before{content:'';position:absolute;inset:0;background:linear-gradient(160deg,rgba(255,255,255,.07) 0%,transparent 50%);pointer-events:none}
 .bp:active{transform:scale(.96);filter:brightness(.92)}
 .bp:disabled{opacity:.3;cursor:default;transform:none}
+/* Retorno imediato do acionamento */
+.bp.enviando:disabled,.bp.acionado:disabled{opacity:1}
+.bp.enviando{animation:bp-pulso 1s ease-in-out infinite}
+.bp.enviando .sub,.bp.acionado .sub{opacity:1}
+.ba.enviando{box-shadow:0 0 0 3px rgba(34,197,94,.35),0 8px 32px rgba(34,197,94,.25)}
+.bf.enviando{box-shadow:0 0 0 3px rgba(240,82,82,.35),0 8px 32px rgba(240,82,82,.25)}
+.bp.acionado{filter:brightness(1.25)}
+@keyframes bp-pulso{50%{filter:brightness(1.18)}}
 .bp .gate-icon{width:56px;height:56px;position:relative;z-index:1}
 .bp .lbl{font-family:var(--font-display);font-size:var(--fs-lg);font-weight:700;letter-spacing:.01em;position:relative;z-index:1}
 .bp .sub{font-size:var(--fs-xs);opacity:.75;font-weight:600;position:relative;z-index:1;letter-spacing:.06em;text-transform:uppercase}
@@ -595,7 +603,7 @@ button{font-family:inherit}
 
 <!-- VCN_BUILD_SCRIPTS -->
 <script src="./assets/control.abe30eb40fd9.js"></script>
-<script src="./assets/app.bbd9735d3876.js"></script>
+<script src="./assets/app.914f42320fed.js"></script>
 <!-- VCN_BUILD_SCRIPTS_END -->
 </body>
 </html>

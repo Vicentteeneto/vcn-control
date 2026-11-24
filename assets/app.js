@@ -494,8 +494,9 @@ try { armazenamentoPedidos = sessionStorage; } catch (_) {}
 const pedidos = VCNControl.create({
   storage: armazenamentoPedidos,
   request: requisicaoAutenticada,
-  onChange: () => { atualizarBotoesComando(); mostrarEstadoPedido(); },
+  onChange: state => { atualizarBotoesComando(); mostrarEstadoPedido(); feedbackPedido(state); },
   onSettled: state => {
+    concluirFeedback(state);
     presenca.refresh();
     if (state.phase === 'failed') toast('Falha no pedido. Verifique sua conexão e permissão.');
     if (state.phase === 'expired') toast('O pedido expirou. Confira o portão antes de tentar novamente.');
@@ -528,6 +529,45 @@ function atualizarStatusArduino() {
     : !navigator.onLine || p.reason === 'unavailable' ? 'Não foi possível verificar a placa: conexão com o servidor indisponível.'
     : 'A placa não está mantendo comunicação com o servidor.';
 }
+// Retorno imediato no botão tocado: o acionamento físico depende do ESP32,
+// mas a pessoa vê e sente na hora que o pedido saiu e quando foi confirmado.
+const TEXTO_SUB_PADRAO = 'Acionar portão';
+let feedbackTimer = null;
+function vibrar(padrao) { try { if (navigator.vibrate) navigator.vibrate(padrao); } catch (_) {} }
+function botaoDaAcao(acao) {
+  return document.getElementById(acao === 'fechar' ? 'btn-fechar' : 'btn-abrir');
+}
+function limparFeedback() {
+  if (feedbackTimer) clearTimeout(feedbackTimer);
+  feedbackTimer = null;
+  for (const id of ['btn-abrir', 'btn-fechar']) {
+    const b = document.getElementById(id);
+    b.classList.remove('enviando', 'acionado');
+    const sub = b.querySelector('.sub');
+    if (sub) sub.textContent = TEXTO_SUB_PADRAO;
+  }
+}
+function feedbackPedido(state) {
+  if (!state || !state.busy || !state.action) return;
+  const b = botaoDaAcao(state.action);
+  if (!b.classList.contains('enviando')) {
+    limparFeedback();
+    b.classList.add('enviando');
+  }
+  const sub = b.querySelector('.sub');
+  if (sub) sub.textContent = state.phase === 'sending' ? 'Enviando…' : 'Aguardando portão…';
+}
+function concluirFeedback(state) {
+  limparFeedback();
+  if (!state || state.phase !== 'confirmed' || !state.action) return;
+  const b = botaoDaAcao(state.action);
+  b.classList.add('acionado');
+  const sub = b.querySelector('.sub');
+  if (sub) sub.textContent = 'Acionado ✓';
+  vibrar([25, 60, 25]);
+  feedbackTimer = setTimeout(limparFeedback, 2000);
+}
+
 function mostrarEstadoPedido() {
   const p = pedidos.snapshot();
   const verificar = document.getElementById('btn-verificar-pedido');
@@ -545,6 +585,7 @@ async function enviarComando(acao) {
   if (!navigator.onLine) return toast('Sem internet — pedido não enviado');
   if (!CONFIG_OK) return toast('Aguarde a verificação das configurações');
   if (CONFIG.modo_manutencao && PERFIL.admin !== true) return toast('Sistema em manutenção');
+  vibrar(20);
   try { await pedidos.send(acao, USER_ID); }
   catch (_) { toast('Não foi possível preparar o pedido. Atualize a página.'); }
   atualizarBotoesComando();

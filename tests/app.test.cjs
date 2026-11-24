@@ -121,3 +121,23 @@ test('sair encerra monitor de presença antes de outra conta entrar',async()=>{
   vm.runInContext(section('function limparTimers()','function agendarPerfil()')+'\n'+section('async function sair()','document.getElementById(\'btn-sair\')'),s.context);
   await s.context.sair();assert.equal(stops,1);assert.equal(s.nodes.get('s-txt').textContent,'Arduino: Offline');
 });
+test('toque dá retorno imediato no botão e confirmação mostra "Acionado"',()=>{
+  const fb=section('const TEXTO_SUB_PADRAO','function mostrarEstadoPedido()');
+  const nodes=new Map();
+  const mk=()=>{const cls=new Set();const sub={textContent:'Acionar portão'};
+    return {cls,sub,classList:{add:(...c)=>c.forEach(x=>cls.add(x)),remove:(...c)=>c.forEach(x=>cls.delete(x)),contains:c=>cls.has(c)},querySelector:()=>sub};};
+  const vibrou=[];const timers=[];
+  const ctx={document:{getElementById(id){if(!nodes.has(id))nodes.set(id,mk());return nodes.get(id);}},
+    navigator:{vibrate:p=>vibrou.push(p)},setTimeout:f=>{timers.push(f);return timers.length;},clearTimeout(){}};
+  vm.createContext(ctx);vm.runInContext(fb,ctx);
+  ctx.feedbackPedido({busy:true,action:'abrir',phase:'sending'});
+  const abrir=nodes.get('btn-abrir');
+  assert.ok(abrir.cls.has('enviando'));assert.equal(abrir.sub.textContent,'Enviando…');
+  ctx.feedbackPedido({busy:true,action:'abrir',phase:'waiting'});assert.equal(abrir.sub.textContent,'Aguardando portão…');
+  ctx.concluirFeedback({busy:false,action:'abrir',phase:'confirmed'});
+  assert.ok(abrir.cls.has('acionado'));assert.ok(!abrir.cls.has('enviando'));assert.equal(abrir.sub.textContent,'Acionado ✓');
+  assert.equal(vibrou.length,1);
+  timers.pop()();assert.ok(!abrir.cls.has('acionado'));assert.equal(abrir.sub.textContent,'Acionar portão');
+  ctx.feedbackPedido({busy:true,action:'fechar',phase:'waiting'});ctx.concluirFeedback({busy:false,action:'fechar',phase:'expired'});
+  const fechar=nodes.get('btn-fechar');assert.ok(!fechar.cls.has('acionado'));assert.equal(fechar.sub.textContent,'Acionar portão');
+});
