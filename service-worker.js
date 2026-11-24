@@ -1,10 +1,10 @@
 const CACHE_PREFIX = 'vcn-control-';
-const CACHE_NAME = 'vcn-control-v24-51f3a59d17f9';
+const CACHE_NAME = 'vcn-control-v24-b235edf1ee88';
 const STATIC_FILES = [
   "./index.html",
   "./manifest.json",
   "./assets/control.abe30eb40fd9.js",
-  "./assets/app.bbd9735d3876.js",
+  "./assets/app.914f42320fed.js",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
   "./assets/icon-maskable-192.png",
