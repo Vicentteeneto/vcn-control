@@ -141,3 +141,24 @@ test('toque dá retorno imediato no botão e confirmação mostra "Acionado"',()
   ctx.feedbackPedido({busy:true,action:'fechar',phase:'waiting'});ctx.concluirFeedback({busy:false,action:'fechar',phase:'expired'});
   const fechar=nodes.get('btn-fechar');assert.ok(!fechar.cls.has('acionado'));assert.equal(fechar.sub.textContent,'Acionar portão');
 });
+test('conta do ESP32 fica em "Dispositivos", sem botão de revogar',async()=>{
+  const lista=section('const EMAIL_DISPOSITIVO','async function verificarStatus()');
+  const nodes=new Map();
+  const ctx={USER_ID:'admin-1',TOKEN:'t',esc:x=>String(x),atualizarPendentes(){},
+    document:{getElementById(id){if(!nodes.has(id))nodes.set(id,{innerHTML:''});return nodes.get(id);}},
+    async getUsuarios(){return {ok:true,data:[
+      {id:'admin-1',nome:'Vicente',email:'v@x.com',aprovado:true,admin:true},
+      {id:'dev-1',nome:'Dispositivo ESP32',email:'ESP32@vcn.local',aprovado:true,admin:false},
+      {id:'u-1',nome:'Joao',email:'j@x.com',aprovado:true,admin:false}]};}};
+  vm.createContext(ctx);vm.runInContext(lista,ctx);await ctx.carregarUsuarios();
+  const html=nodes.get('lista-u').innerHTML;
+  const dispositivos=html.slice(html.indexOf('aria-label="Dispositivos"'),html.indexOf('aria-label="Aguardando'));
+  assert.match(dispositivos,/Dispositivo ESP32/);assert.match(dispositivos,/DISPOSITIVO/);
+  assert.doesNotMatch(dispositivos,/data-acao="remover"/);
+  assert.doesNotMatch(html.slice(html.indexOf('aria-label="Usuários ativos"')),/Dispositivo ESP32/);
+  assert.match(html.slice(html.indexOf('aria-label="Usuários ativos"')),/data-acao="remover" data-id="u-1"/);
+  // Desativado: oferece reativar, nunca revogar
+  ctx.getUsuarios=async()=>({ok:true,data:[{id:'dev-1',nome:'Dispositivo ESP32',email:'esp32@vcn.local',aprovado:false,admin:false}]});
+  await ctx.carregarUsuarios();const off=nodes.get('lista-u').innerHTML;
+  assert.match(off,/uc-device-off/);assert.match(off,/data-acao="aprovar" data-id="dev-1">Reativar/);assert.doesNotMatch(off,/remover/);
+});

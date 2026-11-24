@@ -774,6 +774,7 @@ document.getElementById('btn-reiniciar-esp').onclick = async () => {
   toast(m.includes('check') || m.includes('23514') ? 'Reinício ainda não habilitado no banco/firmware' : 'Falha ao enviar reinício');
 };
 
+const EMAIL_DISPOSITIVO = 'esp32@vcn.local';
 async function carregarUsuarios() {
   const r = await getUsuarios(TOKEN);
   const lista = document.getElementById('lista-u');
@@ -783,8 +784,11 @@ async function carregarUsuarios() {
   atualizarPendentes(r.data);
 
   // Separa o perfil do administrador logado dos demais usuários.
+  // A conta do ESP32 fica à parte: revogá-la por engano desliga o portão.
+  const ehDispositivo = u => String(u.email || '').trim().toLowerCase() === EMAIL_DISPOSITIVO;
   const eu        = r.data.find(u => u.id === USER_ID);
-  const outros    = r.data.filter(u => u.id !== USER_ID);
+  const dispositivos = r.data.filter(u => u.id !== USER_ID && ehDispositivo(u));
+  const outros    = r.data.filter(u => u.id !== USER_ID && !ehDispositivo(u));
   const admins    = outros.filter(u => u.admin === true);
   const pendentes = outros.filter(u => u.admin !== true && !u.aprovado);
   const ativos    = outros.filter(u => u.admin !== true && u.aprovado);
@@ -808,6 +812,12 @@ async function carregarUsuarios() {
       <div class="sec-title">Meu perfil</div>
       ${cartao(eu, '<span class="role-badge">ADMIN</span>', ' uc-me')}
     </section>`;
+  }
+  if (dispositivos.length) {
+    html += secao('Dispositivos', dispositivos.map(u => u.aprovado
+      ? cartao(u, '<span class="role-badge role-device">DISPOSITIVO</span>', ' uc-device')
+      : cartao(u, `<div class="uac"><button class="bap" data-acao="aprovar" data-id="${esc(u.id)}">Reativar</button></div>`,
+          ' uc-device uc-device-off')), '');
   }
   if (admins.length) {
     html += secao('Administradores', admins.map(u => cartao(u, '<span class="role-badge">ADMIN</span>')), '');

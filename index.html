@@ -64,6 +64,8 @@
 @font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('./assets/fonts/inter.woff2') format('woff2')}
 @font-face{font-family:'Space Grotesk';font-style:normal;font-weight:300 700;font-display:swap;src:url('./assets/fonts/space-grotesk.woff2') format('woff2')}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+/* Faixa atrás do relógio/bateria do iPhone: conteúdo rolado não passa por baixo */
+body::before{content:'';position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:1000;pointer-events:none}
 body{
   font-family:var(--font);
   background:var(--bg);color:var(--text);
@@ -259,6 +261,10 @@ button{font-family:inherit}
 .u-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 6px;border-radius:9px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-size:.625rem;letter-spacing:0}
 .uc-me{background:linear-gradient(135deg,rgba(24,225,223,.08),rgba(8,102,255,.10));border-color:rgba(16,168,255,.45);box-shadow:0 0 0 1px rgba(16,168,255,.12),0 8px 28px rgba(8,102,255,.15)}
 .uc-me .avatar{background:var(--vcn-gradient)}
+.role-device{color:var(--vcn-azure);background:rgba(16,168,255,.08);border-color:rgba(16,168,255,.35)}
+.uc-device .avatar{background:linear-gradient(135deg,#0C213B,#12294A);color:var(--vcn-cyan);border:1px solid rgba(24,225,223,.35)}
+.uc-device-off{border-color:rgba(255,138,53,.45)}
+.uc-device-off .e::after{content:' · desativado: o portão não funciona';color:var(--vcn-orange)}
 .role-badge{flex-shrink:0;font-family:var(--font-display);font-size:.625rem;font-weight:700;letter-spacing:.14em;padding:5px 10px;border-radius:20px;color:var(--vcn-cyan);background:rgba(24,225,223,.08);border:1px solid rgba(24,225,223,.35)}
 .empty{color:var(--text3);text-align:center;padding:24px;font-size:var(--fs-sm)}
 
@@ -603,7 +609,7 @@ button{font-family:inherit}
 
 <!-- VCN_BUILD_SCRIPTS -->
 <script src="./assets/control.abe30eb40fd9.js"></script>
-<script src="./assets/app.914f42320fed.js"></script>
+<script src="./assets/app.a06fab611119.js"></script>
 <!-- VCN_BUILD_SCRIPTS_END -->
 </body>
 </html>
